@@ -1,9 +1,7 @@
 import { useMemo } from 'react';
 import {
-  AVENUE_HALF_WIDTH,
   BANDS,
   BLOCK_MARGIN,
-  LOOP_HALF_LENGTH,
   ROAD_LENGTH,
   ROAD_TOP,
   SIDEWALK_TOP,
@@ -13,11 +11,10 @@ import {
 
 const ROAD_COLOR = '#1e293b';
 const GROUND_COLOR = '#0a1322';
-const LINE_COLOR = '#cbd5e1';
+const AVENUE_LINE_COLOR = '#e2e8f0';
+const STREET_LINE_COLOR = '#94a3b8';
 const CURB_COLOR = '#64748b';
 const SIDEWALK_COLOR = '#334155';
-const DASH_SPACING = 3.2;
-const DASH_CLEARANCE = AVENUE_HALF_WIDTH + 0.8;
 const CROSSWALK_BANDS = [-18, -9, 0, 9, 18];
 const STRIPE_OFFSETS = [-1.5, -0.9, -0.3, 0.3, 0.9, 1.5];
 
@@ -30,29 +27,62 @@ export function Ground() {
   );
 }
 
-function AvenueDashes() {
-  const offsets = useMemo(() => {
-    const list: number[] = [];
-    for (let p = -LOOP_HALF_LENGTH; p <= LOOP_HALF_LENGTH; p += DASH_SPACING) {
-      if (Math.abs(p) > DASH_CLEARANCE) list.push(p);
+function computeDashPositions(): number[] {
+  const positions: number[] = [];
+  const halfRoad = ROAD_LENGTH / 2 - 1.2;
+  const stops = [-halfRoad, ...BANDS, halfRoad];
+
+  for (let i = 0; i < stops.length - 1; i++) {
+    const a = stops[i];
+    const b = stops[i + 1];
+    const padA = i === 0 ? 0.5 : halfWidthOf(a) + 0.85;
+    const padB = i === stops.length - 2 ? 0.5 : halfWidthOf(b) + 0.85;
+    const start = a + padA;
+    const end = b - padB;
+    const segLen = end - start;
+    if (segLen <= 0.8) continue;
+
+    const count = Math.max(1, Math.round(segLen / 2.2));
+    const step = segLen / count;
+    for (let j = 0; j < count; j++) {
+      positions.push(start + (j + 0.5) * step);
     }
-    return list;
-  }, []);
+  }
+
+  return positions;
+}
+
+function RoadDashes() {
+  const dashPositions = useMemo(computeDashPositions, []);
+  const y = ROAD_TOP + 0.01;
 
   return (
     <group>
-      {offsets.map((p) => (
-        <mesh key={`x-${p}`} position={[p, ROAD_TOP + 0.01, 0]}>
-          <boxGeometry args={[1.6, 0.02, 0.14]} />
-          <meshBasicMaterial color={LINE_COLOR} />
-        </mesh>
-      ))}
-      {offsets.map((p) => (
-        <mesh key={`z-${p}`} position={[0, ROAD_TOP + 0.01, p]}>
-          <boxGeometry args={[0.14, 0.02, 1.6]} />
-          <meshBasicMaterial color={LINE_COLOR} />
-        </mesh>
-      ))}
+      {BANDS.map((band) => {
+        const isMainAvenue = band === 0;
+        const dashLen = isMainAvenue ? 1.35 : 1.1;
+        const dashWidth = isMainAvenue ? 0.14 : 0.11;
+        const color = isMainAvenue ? AVENUE_LINE_COLOR : STREET_LINE_COLOR;
+
+        return (
+          <group key={band}>
+            {dashPositions.map((p) => (
+              <group key={p}>
+                {/* Faixa da via no sentido X */}
+                <mesh position={[p, y, band]}>
+                  <boxGeometry args={[dashLen, 0.016, dashWidth]} />
+                  <meshBasicMaterial color={color} />
+                </mesh>
+                {/* Faixa da via no sentido Z */}
+                <mesh position={[band, y, p]}>
+                  <boxGeometry args={[dashWidth, 0.016, dashLen]} />
+                  <meshBasicMaterial color={color} />
+                </mesh>
+              </group>
+            ))}
+          </group>
+        );
+      })}
     </group>
   );
 }
@@ -148,7 +178,7 @@ export function Roads() {
         );
       })}
       <Sidewalks />
-      <AvenueDashes />
+      <RoadDashes />
       <Crosswalks />
     </group>
   );
