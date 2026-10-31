@@ -1,6 +1,8 @@
+import { Line } from '@react-three/drei';
 import { useFrame } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
 import type { Group } from 'three';
+import type { Line2 } from 'three-stdlib';
 import type { BlockLevel } from '@/lib/interventions';
 import {
   DETOUR_OFFSET,
@@ -13,11 +15,13 @@ import {
 
 type Axis = 'x' | 'z';
 type Side = 1 | -1;
+type Vec3 = [number, number, number];
 
 const CROSS_STREET_POS = 9.0;
 const CORNER_RADIUS = 1.4;
 const TURN_ENTRY_U = -CROSS_STREET_POS - CORNER_RADIUS; // -10.4
 const TURN_EXIT_U = CROSS_STREET_POS + CORNER_RADIUS; // +10.4
+const ROUTE_LEAD_U = 14.5;
 
 const ARC_LEN = CORNER_RADIUS * (Math.PI / 2);
 const CROSS_LEN = DETOUR_OFFSET - LANE_OFFSET - 2 * CORNER_RADIUS;
@@ -117,6 +121,78 @@ function sampleDetourPath(s: number, entryU: number): PathSample {
     du: Math.sin(alpha),
     dw: -Math.cos(alpha),
   };
+}
+
+function toWorldPoint(axis: Axis, side: Side, u: number, w: number, y: number): Vec3 {
+  const x = axis === 'x' ? side * u : side * w;
+  const z = axis === 'x' ? side * w : side * u;
+  return [x, y, z];
+}
+
+function buildDetourRoutePoints(axis: Axis, side: Side): Vec3[] {
+  const y = ROAD_TOP + 0.03;
+  const points: Vec3[] = [toWorldPoint(axis, side, -ROUTE_LEAD_U, LANE_OFFSET, y)];
+  const steps = 64;
+
+  for (let i = 0; i <= steps; i++) {
+    const s = (i / steps) * TOTAL_DETOUR_LEN;
+    const sample = sampleDetourPath(s, TURN_ENTRY_U);
+    points.push(toWorldPoint(axis, side, sample.u, sample.w, y));
+  }
+
+  points.push(toWorldPoint(axis, side, ROUTE_LEAD_U, LANE_OFFSET, y));
+  return points;
+}
+
+function DetourRouteLine({ axis, side }: { axis: Axis; side: Side }) {
+  const dashedLineRef = useRef<Line2>(null);
+  const points = useMemo(() => buildDetourRoutePoints(axis, side), [axis, side]);
+  const entryPoint = useMemo(() => toWorldPoint(axis, side, TURN_ENTRY_U, LANE_OFFSET, ROAD_TOP + 0.032), [axis, side]);
+  const exitPoint = useMemo(() => toWorldPoint(axis, side, TURN_EXIT_U, LANE_OFFSET, ROAD_TOP + 0.032), [axis, side]);
+
+  useFrame((_, delta) => {
+    if (dashedLineRef.current?.material) {
+      dashedLineRef.current.material.dashOffset -= delta * 3.2;
+    }
+  });
+
+  return (
+    <group>
+      {/* Trilha base luminosa do desvio */}
+      <Line points={points} color="#0ea5e9" lineWidth={6} transparent opacity={0.28} />
+      {/* Linha tracejada animada indicando o sentido do fluxo */}
+      <Line
+        ref={dashedLineRef}
+        points={points}
+        color="#38bdf8"
+        lineWidth={2.6}
+        dashed
+        dashScale={1}
+        dashSize={0.85}
+        gapSize={0.55}
+      />
+      {/* Marcadores de início e retorno do desvio */}
+      {[entryPoint, exitPoint].map((pt, idx) => (
+        <mesh key={idx} position={pt} rotation={[-Math.PI / 2, 0, 0]}>
+          <ringGeometry args={[0.18, 0.34, 20]} />
+          <meshBasicMaterial color="#38bdf8" />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function DetourRoutes({ level }: { level: BlockLevel }) {
+  const sides: Side[] = level === 'total' ? [1, -1] : [1];
+  const axes: Axis[] = ['x', 'z'];
+
+  return (
+    <group>
+      {axes.map((axis) =>
+        sides.map((side) => <DetourRouteLine key={`${axis}-${side}`} axis={axis} side={side} />),
+      )}
+    </group>
+  );
 }
 
 function lerpAngle(current: number, target: number, t: number): number {
@@ -277,6 +353,7 @@ export function Traffic({ active, level }: TrafficProps) {
 
   return (
     <group>
+      {active && <DetourRoutes level={level} />}
       {vehicles.map((vehicle, index) => {
         const size = SIZES[vehicle.kind];
         return (
