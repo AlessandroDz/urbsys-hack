@@ -1,11 +1,25 @@
 import { useMemo } from 'react';
-import { AVENUE_HALF_WIDTH, BANDS, ROAD_LENGTH, ROAD_TOP, LOOP_HALF_LENGTH, halfWidthOf } from './cityLayout';
+import {
+  AVENUE_HALF_WIDTH,
+  BANDS,
+  BLOCK_MARGIN,
+  LOOP_HALF_LENGTH,
+  ROAD_LENGTH,
+  ROAD_TOP,
+  SIDEWALK_TOP,
+  blockSpans,
+  halfWidthOf,
+} from './cityLayout';
 
 const ROAD_COLOR = '#1e293b';
 const GROUND_COLOR = '#0a1322';
 const LINE_COLOR = '#cbd5e1';
+const CURB_COLOR = '#64748b';
+const SIDEWALK_COLOR = '#334155';
 const DASH_SPACING = 3.2;
 const DASH_CLEARANCE = AVENUE_HALF_WIDTH + 0.8;
+const CROSSWALK_BANDS = [-18, -9, 0, 9, 18];
+const STRIPE_OFFSETS = [-1.5, -0.9, -0.3, 0.3, 0.9, 1.5];
 
 export function Ground() {
   return (
@@ -43,6 +57,78 @@ function AvenueDashes() {
   );
 }
 
+function Crosswalks() {
+  const y = ROAD_TOP + 0.012;
+
+  return (
+    <group>
+      {CROSSWALK_BANDS.map((band) => {
+        const edge = halfWidthOf(band) + 0.42;
+        return (
+          <group key={band}>
+            {[-1, 1].map((dir) => (
+              <group key={dir}>
+                {STRIPE_OFFSETS.map((stripe) => (
+                  <group key={stripe}>
+                    {/* Faixa atravessando a avenida X */}
+                    <mesh position={[band + dir * edge, y, stripe]}>
+                      <boxGeometry args={[0.55, 0.015, 0.28]} />
+                      <meshBasicMaterial color="#e2e8f0" />
+                    </mesh>
+                    {/* Faixa atravessando a avenida Z */}
+                    <mesh position={[stripe, y, band + dir * edge]}>
+                      <boxGeometry args={[0.28, 0.015, 0.55]} />
+                      <meshBasicMaterial color="#e2e8f0" />
+                    </mesh>
+                  </group>
+                ))}
+              </group>
+            ))}
+          </group>
+        );
+      })}
+    </group>
+  );
+}
+
+function Sidewalks() {
+  const cells = useMemo(() => {
+    const spans = blockSpans();
+    const list: Array<{ x: number; z: number; w: number; d: number; innerW: number; innerD: number }> = [];
+    for (const xs of spans) {
+      for (const zs of spans) {
+        const innerW = xs.max - xs.min;
+        const innerD = zs.max - zs.min;
+        const w = innerW + BLOCK_MARGIN * 2;
+        const d = innerD + BLOCK_MARGIN * 2;
+        const x = (xs.min + xs.max) / 2;
+        const z = (zs.min + zs.max) / 2;
+        list.push({ x, z, w, d, innerW, innerD });
+      }
+    }
+    return list;
+  }, []);
+
+  return (
+    <group>
+      {cells.map((cell, index) => (
+        <group key={index} position={[cell.x, 0, cell.z]}>
+          {/* Meio-fio / Base da calçada */}
+          <mesh position={[0, SIDEWALK_TOP / 2, 0]} receiveShadow>
+            <boxGeometry args={[cell.w, SIDEWALK_TOP, cell.d]} />
+            <meshStandardMaterial color={CURB_COLOR} roughness={0.85} />
+          </mesh>
+          {/* Piso interno da calçada */}
+          <mesh position={[0, SIDEWALK_TOP + 0.004, 0]} receiveShadow>
+            <boxGeometry args={[cell.w - 0.16, 0.008, cell.d - 0.16]} />
+            <meshStandardMaterial color={SIDEWALK_COLOR} roughness={0.92} />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
 export function Roads() {
   return (
     <group>
@@ -61,7 +147,9 @@ export function Roads() {
           </group>
         );
       })}
+      <Sidewalks />
       <AvenueDashes />
+      <Crosswalks />
     </group>
   );
 }

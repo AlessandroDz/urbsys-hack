@@ -2,6 +2,7 @@ import { Canvas } from '@react-three/fiber';
 import { OrbitControls, OrthographicCamera } from '@react-three/drei';
 import type { BlockLevel, WorkId } from '@/lib/interventions';
 import { CityBlocks } from './CityBlocks';
+import { Pedestrians } from './Pedestrians';
 import { Ground, Roads } from './Roads';
 import { Traffic } from './Traffic';
 import { WorkSite } from './WorkSite';
@@ -32,7 +33,8 @@ export function CityScene({ activeWork, level }: CitySceneProps) {
       />
       <Ground />
       <Roads />
-      <CityBlocks />
+      <CityBlocks active={activeWork !== null} />
+      <Pedestrians active={activeWork !== null} level={level} />
       <Traffic active={activeWork !== null} level={level} />
       {activeWork && <WorkSite key={activeWork} workId={activeWork} level={level} />}
       <OrbitControls

@@ -1,4 +1,5 @@
 export const ROAD_TOP = 0.1;
+export const SIDEWALK_TOP = 0.16;
 export const AVENUE_HALF_WIDTH = 2.2;
 export const STREET_HALF_WIDTH = 1.4;
 export const LANE_OFFSET = 1.1;
