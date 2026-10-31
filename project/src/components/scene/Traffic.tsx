@@ -3,7 +3,6 @@ import { useMemo, useRef } from 'react';
 import type { Group } from 'three';
 import type { BlockLevel } from '@/lib/interventions';
 import {
-  CORE_HALF_LENGTH,
   DETOUR_OFFSET,
   LANE_OFFSET,
   LOOP_HALF_LENGTH,
@@ -15,15 +14,130 @@ import {
 type Axis = 'x' | 'z';
 type Side = 1 | -1;
 
+const CROSS_STREET_POS = 9.0;
+const CORNER_RADIUS = 1.4;
+const TURN_ENTRY_U = -CROSS_STREET_POS - CORNER_RADIUS; // -10.4
+const TURN_EXIT_U = CROSS_STREET_POS + CORNER_RADIUS; // +10.4
+
+const ARC_LEN = CORNER_RADIUS * (Math.PI / 2);
+const CROSS_LEN = DETOUR_OFFSET - LANE_OFFSET - 2 * CORNER_RADIUS;
+const PARALLEL_LEN = 2 * (CROSS_STREET_POS - CORNER_RADIUS);
+const TOTAL_DETOUR_LEN = 4 * ARC_LEN + 2 * CROSS_LEN + PARALLEL_LEN;
+
+interface PathSample {
+  u: number;
+  w: number;
+  du: number;
+  dw: number;
+}
+
+function sampleDetourPath(s: number, entryU: number): PathSample {
+  const clamped = Math.max(0, Math.min(TOTAL_DETOUR_LEN, s));
+  let rem = clamped;
+
+  // 1. Curva 90° saindo da avenida principal para a rua transversal (-9)
+  if (rem <= ARC_LEN) {
+    const alpha = rem / CORNER_RADIUS;
+    return {
+      u: entryU + CORNER_RADIUS * Math.sin(alpha),
+      w: LANE_OFFSET + CORNER_RADIUS * (1 - Math.cos(alpha)),
+      du: Math.cos(alpha),
+      dw: Math.sin(alpha),
+    };
+  }
+  rem -= ARC_LEN;
+
+  const cross1U = entryU + CORNER_RADIUS;
+
+  // 2. Trecho reto na rua transversal de desvio
+  if (rem <= CROSS_LEN) {
+    return {
+      u: cross1U,
+      w: LANE_OFFSET + CORNER_RADIUS + rem,
+      du: 0,
+      dw: 1,
+    };
+  }
+  rem -= CROSS_LEN;
+
+  // 3. Curva 90° entrando na via paralela (±9)
+  if (rem <= ARC_LEN) {
+    const alpha = rem / CORNER_RADIUS;
+    return {
+      u: cross1U + CORNER_RADIUS * (1 - Math.cos(alpha)),
+      w: DETOUR_OFFSET - CORNER_RADIUS + CORNER_RADIUS * Math.sin(alpha),
+      du: Math.sin(alpha),
+      dw: Math.cos(alpha),
+    };
+  }
+  rem -= ARC_LEN;
+
+  // 4. Trecho reto na via paralela contornando a obra
+  const parallelStartU = cross1U + CORNER_RADIUS;
+  const effectiveParallelLen = CROSS_STREET_POS - CORNER_RADIUS - parallelStartU;
+  if (rem <= PARALLEL_LEN) {
+    const t = rem / PARALLEL_LEN;
+    return {
+      u: parallelStartU + t * effectiveParallelLen,
+      w: DETOUR_OFFSET,
+      du: 1,
+      dw: 0,
+    };
+  }
+  rem -= PARALLEL_LEN;
+
+  // 5. Curva 90° saindo da via paralela para a segunda rua transversal (+9)
+  if (rem <= ARC_LEN) {
+    const alpha = rem / CORNER_RADIUS;
+    return {
+      u: CROSS_STREET_POS - CORNER_RADIUS + CORNER_RADIUS * Math.sin(alpha),
+      w: DETOUR_OFFSET - CORNER_RADIUS * (1 - Math.cos(alpha)),
+      du: Math.cos(alpha),
+      dw: -Math.sin(alpha),
+    };
+  }
+  rem -= ARC_LEN;
+
+  // 6. Trecho reto voltando pela rua transversal (+9) até a avenida principal
+  if (rem <= CROSS_LEN) {
+    return {
+      u: CROSS_STREET_POS,
+      w: DETOUR_OFFSET - CORNER_RADIUS - rem,
+      du: 0,
+      dw: -1,
+    };
+  }
+  rem -= CROSS_LEN;
+
+  // 7. Curva 90° final reentrando na avenida principal
+  const alpha = Math.min(Math.PI / 2, rem / CORNER_RADIUS);
+  return {
+    u: CROSS_STREET_POS + CORNER_RADIUS * (1 - Math.cos(alpha)),
+    w: LANE_OFFSET + CORNER_RADIUS * (1 - Math.sin(alpha)),
+    du: Math.sin(alpha),
+    dw: -Math.cos(alpha),
+  };
+}
+
+function lerpAngle(current: number, target: number, t: number): number {
+  let diff = ((target - current + Math.PI) % (Math.PI * 2)) - Math.PI;
+  if (diff < -Math.PI) diff += Math.PI * 2;
+  return current + diff * t;
+}
+
 interface Vehicle {
   axis: Axis;
   side: Side;
   kind: 'car' | 'bus';
   color: string;
-  pos: number;
+  u: number;
+  w: number;
   baseSpeed: number;
   speed: number;
-  lateral: number;
+  onDetour: boolean;
+  detourDist: number;
+  detourEntryU: number;
+  heading: number;
 }
 
 const CAR_COLORS = ['#e2e8f0', '#60a5fa', '#34d399', '#f472b6', '#94a3b8', '#a78bfa', '#f1f5f9'];
@@ -33,6 +147,12 @@ const SIZES = {
   bus: { length: 2.8, width: 0.9, height: 1.0 },
 };
 const VEHICLES_PER_LANE: Record<Axis, number> = { x: 6, z: 4 };
+
+function initialHeading(axis: Axis, side: Side): number {
+  const dx = axis === 'x' ? side : 0;
+  const dz = axis === 'z' ? side : 0;
+  return Math.atan2(-dz, dx);
+}
 
 function createVehicles(): Vehicle[] {
   const random = createRandom(99);
@@ -52,10 +172,14 @@ function createVehicles(): Vehicle[] {
           color: isBus
             ? BUS_COLORS[Math.floor(random() * BUS_COLORS.length)]
             : CAR_COLORS[Math.floor(random() * CAR_COLORS.length)],
-          pos: (random() * 2 - 1) * LOOP_HALF_LENGTH,
+          u: (random() * 2 - 1) * LOOP_HALF_LENGTH,
+          w: LANE_OFFSET,
           baseSpeed,
           speed: baseSpeed,
-          lateral: side * LANE_OFFSET,
+          onDetour: false,
+          detourDist: 0,
+          detourEntryU: TURN_ENTRY_U,
+          heading: initialHeading(axis, side),
         });
       }
     }
@@ -81,34 +205,73 @@ export function Traffic({ active, level }: TrafficProps) {
       const node = nodes.current[index];
       if (!node) return;
 
-      const distance = Math.abs(vehicle.pos);
-      const inCore = active && distance < CORE_HALF_LENGTH;
+      const laneBlocked = active && (total || vehicle.side > 0);
+      const distance = Math.abs(vehicle.u);
       const inQueue = active && distance < QUEUE_HALF_LENGTH;
-      const affected = active && (total || vehicle.side > 0);
-      const detour = affected && inCore;
 
-      let factor = 1;
-      if (active) {
-        factor = affected
-          ? inCore ? 0.4 : inQueue ? 0.7 : 1
-          : inCore ? 0.6 : 1;
+      let speedFactor = 1;
+      if (vehicle.onDetour) {
+        speedFactor = 0.62;
+      } else if (active) {
+        speedFactor = laneBlocked ? (inQueue ? 0.68 : 1) : distance < 9.5 ? 0.72 : 1;
       }
 
-      vehicle.speed += (vehicle.baseSpeed * factor - vehicle.speed) * Math.min(1, dt * 1.6);
-      const targetLateral = (detour ? DETOUR_OFFSET : LANE_OFFSET) * vehicle.side;
-      vehicle.lateral += (targetLateral - vehicle.lateral) * Math.min(1, dt * 2.2);
-      vehicle.pos += vehicle.side * vehicle.speed * dt;
+      vehicle.speed += (vehicle.baseSpeed * speedFactor - vehicle.speed) * Math.min(1, dt * 2.5);
 
-      if (vehicle.pos > LOOP_HALF_LENGTH) vehicle.pos -= LOOP_HALF_LENGTH * 2;
-      if (vehicle.pos < -LOOP_HALF_LENGTH) vehicle.pos += LOOP_HALF_LENGTH * 2;
+      let du = 1;
+      let dw = 0;
+
+      if (!vehicle.onDetour) {
+        const prevU = vehicle.u;
+        vehicle.u += vehicle.speed * dt;
+        vehicle.w += (LANE_OFFSET - vehicle.w) * Math.min(1, dt * 4);
+
+        // Inicia o desvio suavemente ao chegar no cruzamento anterior (-9)
+        const reachedTurnPoint =
+          laneBlocked &&
+          ((prevU <= TURN_ENTRY_U && vehicle.u >= TURN_ENTRY_U) ||
+            (vehicle.u >= TURN_ENTRY_U && vehicle.u <= -CROSS_STREET_POS + 0.4));
+
+        if (reachedTurnPoint) {
+          vehicle.onDetour = true;
+          vehicle.detourEntryU = Math.min(-CROSS_STREET_POS + 0.2, Math.max(TURN_ENTRY_U, vehicle.u));
+          vehicle.detourDist = Math.max(0, vehicle.u - vehicle.detourEntryU);
+        }
+
+        if (vehicle.u > LOOP_HALF_LENGTH) {
+          vehicle.u -= LOOP_HALF_LENGTH * 2;
+        }
+      }
+
+      if (vehicle.onDetour) {
+        vehicle.detourDist += vehicle.speed * dt;
+        if (vehicle.detourDist >= TOTAL_DETOUR_LEN) {
+          vehicle.onDetour = false;
+          vehicle.u = TURN_EXIT_U + (vehicle.detourDist - TOTAL_DETOUR_LEN);
+          vehicle.w = LANE_OFFSET;
+          du = 1;
+          dw = 0;
+        } else {
+          const sample = sampleDetourPath(vehicle.detourDist, vehicle.detourEntryU);
+          vehicle.u = sample.u;
+          vehicle.w = sample.w;
+          du = sample.du;
+          dw = sample.dw;
+        }
+      }
+
+      const worldX = vehicle.axis === 'x' ? vehicle.side * vehicle.u : vehicle.side * vehicle.w;
+      const worldZ = vehicle.axis === 'x' ? vehicle.side * vehicle.w : vehicle.side * vehicle.u;
+      const dx = vehicle.axis === 'x' ? vehicle.side * du : vehicle.side * dw;
+      const dz = vehicle.axis === 'x' ? vehicle.side * dw : vehicle.side * du;
+
+      const targetHeading = Math.atan2(-dz, dx);
+      vehicle.heading = lerpAngle(vehicle.heading, targetHeading, Math.min(1, dt * 12));
 
       const height = SIZES[vehicle.kind].height;
       const y = ROAD_TOP + height / 2;
-      if (vehicle.axis === 'x') {
-        node.position.set(vehicle.pos, y, vehicle.lateral);
-      } else {
-        node.position.set(vehicle.lateral, y, vehicle.pos);
-      }
+      node.position.set(worldX, y, worldZ);
+      node.rotation.set(0, vehicle.heading, 0);
     });
   });
 
@@ -122,7 +285,6 @@ export function Traffic({ active, level }: TrafficProps) {
             ref={(node) => {
               nodes.current[index] = node;
             }}
-            rotation={[0, vehicle.axis === 'z' ? Math.PI / 2 : 0, 0]}
           >
             <mesh castShadow receiveShadow>
               <boxGeometry args={[size.length, size.height, size.width]} />
