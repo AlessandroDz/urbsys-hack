@@ -7,12 +7,13 @@ interface CityBlocksProps {
   night: boolean;
   site: WorkSiteFrame;
   sampleRoof: RoofSampler | undefined;
+  highlightPlaces: boolean;
 }
 
 type Shader = Parameters<NonNullable<MeshStandardMaterial['onBeforeCompile']>>[0];
 
-export function CityBlocks({ active = false, night, site, sampleRoof }: CityBlocksProps) {
-  const geometry = useMemo(() => getBuildingGeometry(sampleRoof), [sampleRoof]);
+export function CityBlocks({ active = false, night, site, sampleRoof, highlightPlaces }: CityBlocksProps) {
+  const geometry = useMemo(() => getBuildingGeometry(sampleRoof, highlightPlaces), [sampleRoof, highlightPlaces]);
   // x, z do centro da obra, raio de impacto e intensidade (0 = sem obra)
   const siteUniform = useMemo(() => ({ value: new Vector4() }), []);
   const nightUniform = useMemo(() => ({ value: 0 }), []);

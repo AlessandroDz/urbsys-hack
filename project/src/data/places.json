@@ -1,0 +1,80 @@
+[
+ {
+  "name": "Banco do Brasil",
+  "category": "bank",
+  "x": -269.7,
+  "z": 51.6
+ },
+ {
+  "name": "Itaú",
+  "category": "bank",
+  "x": -315.7,
+  "z": 62.7
+ },
+ {
+  "name": "Santander",
+  "category": "bank",
+  "x": 30.7,
+  "z": -25.8
+ },
+ {
+  "name": "Banestes",
+  "category": "bank",
+  "x": -54.1,
+  "z": -18.1
+ },
+ {
+  "name": "Bradesco",
+  "category": "bank",
+  "x": -286.1,
+  "z": 52
+ },
+ {
+  "name": "Supermercado Epa",
+  "category": "supermarket",
+  "x": 45,
+  "z": -147.8
+ },
+ {
+  "name": "Supermercados BH",
+  "category": "supermarket",
+  "x": 252,
+  "z": 414
+ },
+ {
+  "name": "Hospital da Polícia Militar",
+  "category": "health",
+  "x": 426.5,
+  "z": 315.9
+ },
+ {
+  "name": "Escola Adventista de Vitória",
+  "category": "education",
+  "x": 168.8,
+  "z": 412
+ },
+ {
+  "name": "Escola Abílio T. Queiros",
+  "category": "education",
+  "x": 229.6,
+  "z": -390.1
+ },
+ {
+  "name": "Escola Dominus",
+  "category": "education",
+  "x": -179.9,
+  "z": -444.1
+ },
+ {
+  "name": "Politec Enfermagem",
+  "category": "education",
+  "x": 359.8,
+  "z": -85.5
+ },
+ {
+  "name": "MedSênior Vitória",
+  "category": "health",
+  "x": 18.2,
+  "z": -64.1
+ }
+]

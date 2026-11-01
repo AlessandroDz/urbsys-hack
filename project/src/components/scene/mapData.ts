@@ -7,6 +7,7 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import rawMap from '@/data/vitoria.json';
+import placesData from '@/data/places.json';
 import satelliteMeta from '@/data/satellite.json';
 import type { BlockLevel } from '@/lib/interventions';
 import { createRandom } from './cityLayout';
@@ -654,6 +655,67 @@ const hexToRgb = (hex: string): [number, number, number] => {
   return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
 };
 
+/* ---------- lugares de interesse ---------- */
+
+export type PlaceCategory = 'bank' | 'supermarket' | 'health' | 'education' | 'food' | 'fuel';
+
+export interface Place {
+  name: string;
+  category: PlaceCategory;
+  /** posição em unidades da cena */
+  x: number;
+  z: number;
+}
+
+export const PLACE_COLORS: Record<PlaceCategory, string> = {
+  bank: '#f59e0b',
+  supermarket: '#22c55e',
+  health: '#ef4444',
+  education: '#38bdf8',
+  food: '#fb923c',
+  fuel: '#a78bfa',
+};
+
+export const PLACES: Place[] = (placesData as Array<{ name: string; category: PlaceCategory; x: number; z: number }>).map(
+  (place) => ({ ...place, x: place.x * M, z: place.z * M }),
+);
+
+/** Distância (m) de um ponto ao polígono; 0 se estiver dentro. */
+function distanceToPolygon(x: number, z: number, poly: Vec2[]) {
+  let inside = false;
+  let best = Infinity;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i];
+    const [xj, zj] = poly[j];
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+    const dx = xj - xi;
+    const dz = zj - zi;
+    const t = Math.max(0, Math.min(1, ((x - xi) * dx + (z - zi) * dz) / (dx * dx + dz * dz || 1)));
+    best = Math.min(best, Math.hypot(x - (xi + dx * t), z - (zi + dz * t)));
+  }
+  return inside ? 0 : best;
+}
+
+/** Prédio mais próximo de cada lugar (até 12 m), em índice de data.buildings. */
+function matchPlaceBuildings(): Map<number, Place> {
+  const matches = new Map<number, Place>();
+  for (const place of PLACES) {
+    let bestIndex = -1;
+    let bestDistance = 12;
+    data.buildings.forEach((building, index) => {
+      const pts = closedFootprint(building);
+      if (!pts) return;
+      const distance = distanceToPolygon(place.x / M, place.z / M, pts);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestIndex = index;
+      }
+    });
+    if (bestIndex >= 0) matches.set(bestIndex, place);
+  }
+  return matches;
+}
+
 /* ---------- campus da FAESA ---------- */
 
 interface CampusBuilding {
@@ -726,12 +788,13 @@ function closedFootprint(building: RawBuilding): Vec2[] | null {
   return pts.length >= 3 ? pts : null;
 }
 
-export function getBuildingGeometry(sampleRoof?: RoofSampler): BufferGeometry | null {
+export function getBuildingGeometry(sampleRoof?: RoofSampler, highlightPlaces = false): BufferGeometry | null {
   const random = createRandom(777);
   const geometries: BufferGeometry[] = [];
   const facades = FACADES.map(hexToRgb);
+  const placeBuildings = highlightPlaces ? matchPlaceBuildings() : new Map<number, Place>();
 
-  for (const building of data.buildings) {
+  for (const [buildingIndex, building] of data.buildings.entries()) {
     const pts = closedFootprint(building);
     if (!pts) continue;
 
@@ -768,11 +831,20 @@ export function getBuildingGeometry(sampleRoof?: RoofSampler): BufferGeometry | 
 
     const [fr, fg, fb] = facades[Math.floor(random() * facades.length)];
     const wallShade = 0.68 + random() * 0.12;
-    const [wr, wg, wb] = campus ? CAMPUS_FACADE : [fr, fg, fb];
+    let [wr, wg, wb] = campus ? CAMPUS_FACADE : [fr, fg, fb];
 
     // telhado com a cor real vista do alto; sem satélite, um cinza de laje
     const sampled = sampleRoof?.(cx, cz);
-    const roof = sampled ? sampled.map((c) => c * 0.8) : [0.45, 0.45, 0.47];
+    let roof = sampled ? sampled.map((c) => c * 0.8) : [0.45, 0.45, 0.47];
+
+    // prédio de um lugar de interesse: fachada e telhado na cor da categoria
+    const place = placeBuildings.get(buildingIndex);
+    if (place) {
+      const accent = hexToRgb(PLACE_COLORS[place.category]);
+      const base = [wr, wg, wb];
+      [wr, wg, wb] = [0, 1, 2].map((k) => base[k] * 0.35 + (accent[k] * 0.65) / wallShade) as [number, number, number];
+      roof = accent.map((c) => c * 0.9);
+    }
 
     const position = geometry.getAttribute('position');
     const normal = geometry.getAttribute('normal');

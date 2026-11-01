@@ -4,6 +4,7 @@ export interface Layers {
   roads: boolean;
   trees: boolean;
   campus: boolean;
+  places: boolean;
   traffic: boolean;
   pedestrians: boolean;
   labels: boolean;
@@ -16,6 +17,7 @@ export const DEFAULT_LAYERS: Layers = {
   roads: false,
   trees: true,
   campus: true,
+  places: true,
   traffic: true,
   pedestrians: true,
   labels: true,

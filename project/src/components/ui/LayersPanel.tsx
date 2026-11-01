@@ -1,4 +1,4 @@
-import { Building2, Car, GraduationCap, Footprints, Layers as LayersIcon, Moon, Route, Satellite, Sun, Tag, TreePine, type LucideIcon } from 'lucide-react';
+import { Building2, Car, GraduationCap, MapPin, Footprints, Layers as LayersIcon, Moon, Route, Satellite, Sun, Tag, TreePine, type LucideIcon } from 'lucide-react';
 import { useState } from 'react';
 import type { Layers } from '@/components/scene/layers';
 import { GLASS_PANEL } from './primitives';
@@ -13,6 +13,7 @@ const ITEMS: Array<{ key: keyof Omit<Layers, 'night'>; label: string; icon: Luci
   { key: 'buildings', label: 'Prédios 3D', icon: Building2 },
   { key: 'trees', label: 'Árvores', icon: TreePine },
   { key: 'campus', label: 'Destaque FAESA', icon: GraduationCap },
+  { key: 'places', label: 'Locais ao redor', icon: MapPin },
   { key: 'roads', label: 'Traçado das vias', icon: Route },
   { key: 'traffic', label: 'Tráfego', icon: Car },
   { key: 'pedestrians', label: 'Pedestres', icon: Footprints },

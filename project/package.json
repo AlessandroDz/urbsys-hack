@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.app.json",
     "fetch-map": "node scripts/fetchOsm.mjs",
-    "fetch-satellite": "node scripts/fetchSatellite.mjs"
+    "fetch-satellite": "node scripts/fetchSatellite.mjs",
+    "fetch-places": "node scripts/fetchPlaces.mjs"
   },
   "dependencies": {
     "@react-three/drei": "^9.122.0",

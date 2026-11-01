@@ -9,6 +9,7 @@ import { Ground, Roads } from './Roads';
 import { Traffic } from './Traffic';
 import { WorkSite } from './WorkSite';
 import { Campus } from './Campus';
+import { Places } from './Places';
 import { Trees } from './Trees';
 import type { Layers } from './layers';
 import { useSatellite } from './useSatellite';
@@ -128,10 +129,13 @@ export const CityScene = forwardRef<CitySceneHandle, CitySceneProps>(function Ci
         <Ground texture={layers.satellite ? satellite.texture : null} night={night} />
         <Roads showRoads={layers.roads || !layers.satellite} showLabels={layers.labels} />
         {layers.buildings && satellite.ready && (
-          <CityBlocks active={activeWork !== null} night={night} site={site} sampleRoof={satellite.sampleRoof} />
+          <CityBlocks active={activeWork !== null} night={night} site={site} sampleRoof={satellite.sampleRoof}
+            highlightPlaces={layers.places}
+          />
         )}
         {layers.trees && <Trees />}
         {layers.campus && <Campus />}
+        {layers.places && <Places />}
         {layers.pedestrians && <Pedestrians active={activeWork !== null} level={level} site={site} />}
         {layers.traffic && <Traffic active={activeWork !== null} level={level} site={site} />}
         {activeWork && <WorkSite key={`${activeWork}-${site.center.join()}`} workId={activeWork} level={level} site={site} />}
