@@ -3,7 +3,7 @@ import { useMemo, useRef } from 'react';
 import type { Group, Mesh } from 'three';
 import type { BlockLevel } from '@/lib/interventions';
 import { FOOTPATH_TOP, createRandom } from './cityLayout';
-import { CLOSURE_RADIUS, WALK_PATHS, WORK_FRAME, sampleAt, type Sample, type WalkPath } from './mapData';
+import { CLOSURE_RADIUS, WALK_PATHS, sampleAt, type Sample, type WalkPath, type WorkSiteFrame } from './mapData';
 
 type Dir = 1 | -1;
 
@@ -70,9 +70,10 @@ function createPedestrians(): Pedestrian[] {
 interface PedestriansProps {
   active: boolean;
   level: BlockLevel;
+  site: WorkSiteFrame;
 }
 
-export function Pedestrians({ active }: PedestriansProps) {
+export function Pedestrians({ active, site }: PedestriansProps) {
   const pedestrians = useMemo(createPedestrians, []);
   const groupRefs = useRef<(Group | null)[]>([]);
   const leftLegRefs = useRef<(Mesh | null)[]>([]);
@@ -82,7 +83,7 @@ export function Pedestrians({ active }: PedestriansProps) {
   useFrame(({ clock }, delta) => {
     const dt = Math.min(delta, 0.05);
     const t = clock.elapsedTime;
-    const [cx, cz] = WORK_FRAME.center;
+    const [cx, cz] = site.center;
 
     pedestrians.forEach((ped, index) => {
       const node = groupRefs.current[index];

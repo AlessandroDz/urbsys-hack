@@ -7,6 +7,7 @@ import {
 } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import rawMap from '@/data/vitoria.json';
+import satelliteMeta from '@/data/satellite.json';
 import type { BlockLevel } from '@/lib/interventions';
 import { createRandom } from './cityLayout';
 
@@ -29,12 +30,13 @@ const data = rawMap as unknown as { half: number; roads: RawRoad[]; buildings: R
 /** 1 unidade da cena = 3 m reais, mantendo o tamanho dos carros e pedestres do modelo anterior. */
 export const MAP_SCALE = 1 / 3;
 export const MAP_HALF = data.half * MAP_SCALE;
+/** Metade do lado da imagem de satélite, em unidades da cena. */
+export const SATELLITE_HALF = satelliteMeta.halfMeters * MAP_SCALE;
 const M = MAP_SCALE;
 
 const CHUNK_LENGTH = 6;
 export const CLOSURE_RADIUS = 7.5;
 export const IMPACT_RADIUS = 22;
-const WORK_STREET = 'Avenida Vitória';
 
 const DRIVABLE_WIDTH_M: Record<string, number> = {
   primary: 10,
@@ -44,7 +46,6 @@ const DRIVABLE_WIDTH_M: Record<string, number> = {
   residential: 6.5,
   service: 4,
 };
-export const CARRIAGE_WIDTH = (DRIVABLE_WIDTH_M.primary * MAP_SCALE);
 const GRAPH_KINDS = new Set(['primary', 'primary_link', 'tertiary', 'unclassified', 'residential']);
 const WALKABLE_WIDTH_M: Record<string, number> = {
   footway: 2,
@@ -373,72 +374,90 @@ function nearestOnEdge(edge: Edge, p: Vec2) {
   return { distance: best, point };
 }
 
-function computeWorkFrame() {
-  const origin: Vec2 = [0, 0];
-  const avenue = GRAPH.edges.filter((e) => e.name === WORK_STREET);
+/** Distância máxima entre pistas para tratá-las como a mesma avenida (ex.: Av. Vitória, 12 m). */
+const DUAL_CARRIAGEWAY_MAX = 6;
 
-  let first: { edge: Edge; point: Vec2; distance: number } | null = null;
-  for (const edge of avenue) {
-    const hit = nearestOnEdge(edge, origin);
-    if (!first || hit.distance < first.distance) first = { edge, point: hit.point, distance: hit.distance };
-  }
-  if (!first) return { center: origin, angle: 0, laneHalf: 1.5, width: 3 + CARRIAGE_WIDTH, direction: [1, 0] as Vec2 };
-
-  // pista oposta: a Av. Vitória é dividida em duas pistas de mão única
-  let opposite: { point: Vec2; distance: number } | null = null;
-  for (const edge of avenue) {
-    if (edge.dir[0] * first.edge.dir[0] + edge.dir[1] * first.edge.dir[1] > -0.5) continue;
-    const hit = nearestOnEdge(edge, origin);
-    if (!opposite || hit.distance < opposite.distance) opposite = hit;
-  }
-
-  const direction = first.edge.dir;
-  const partner = opposite?.point ?? first.point;
-  const center: Vec2 = [(first.point[0] + partner[0]) / 2, (first.point[1] + partner[1]) / 2];
-  const normal: Vec2 = [-direction[1], direction[0]];
-  const separation = Math.abs((first.point[0] - partner[0]) * normal[0] + (first.point[1] - partner[1]) * normal[1]);
-  const laneHalf = Math.max(1, separation / 2);
-
-  // mantém a pista do trecho de referência no lado +Z local
-  const side = (first.point[0] - center[0]) * normal[0] + (first.point[1] - center[1]) * normal[1];
-  const dir: Vec2 = side >= 0 ? direction : [-direction[0], -direction[1]];
-  const angle = Math.atan2(-dir[1], dir[0]);
-
-  return { center, angle, laneHalf, width: laneHalf * 2 + DRIVABLE_WIDTH_M.primary * M * 0.55, direction };
-}
-
-const FRAME = computeWorkFrame();
-
-export const WORK_FRAME = {
-  center: FRAME.center,
-  /** rotação em Y que alinha o eixo X local com a Av. Vitória */
-  angle: FRAME.angle,
+export interface WorkSiteFrame {
+  center: Vec2;
+  /** rotação em Y que alinha o eixo X local com a via */
+  angle: number;
   /** distância do eixo central até o centro de cada pista */
-  laneHalf: FRAME.laneHalf,
-  /** largura total da avenida (as duas pistas) */
-  width: FRAME.width,
+  laneHalf: number;
+  /** largura total da via (todas as pistas) */
+  width: number;
   /** largura de uma pista */
-  carriage: CARRIAGE_WIDTH,
-};
-
-function computeBlocked(level: BlockLevel): Set<number> {
-  const blocked = new Set<number>();
-  for (const edge of GRAPH.edges) {
-    if (edge.name !== WORK_STREET) continue;
-    const distance = Math.hypot(edge.mid[0] - WORK_FRAME.center[0], edge.mid[1] - WORK_FRAME.center[1]);
-    if (distance > CLOSURE_RADIUS) continue;
-    const sameWay = edge.dir[0] * FRAME.direction[0] + edge.dir[1] * FRAME.direction[1] > 0;
-    if (level === 'total' || sameWay) blocked.add(edge.id);
-  }
-  return blocked;
+  carriage: number;
+  streetName: string | null;
+  blocked: Record<BlockLevel, Set<number>>;
+  detourCache: Map<BlockLevel, Vec2[][]>;
 }
 
-const BLOCKED: Record<BlockLevel, Set<number>> = {
-  partial: computeBlocked('partial'),
-  total: computeBlocked('total'),
-};
+/** Encaixa a obra na via mais próxima do ponto e calcula tudo o que depende do lugar. */
+export function createSite(point: Vec2): WorkSiteFrame {
+  let nearest: { edge: Edge; point: Vec2; distance: number } | null = null;
+  for (const edge of GRAPH.edges) {
+    const hit = nearestOnEdge(edge, point);
+    if (!nearest || hit.distance < nearest.distance) nearest = { edge, point: hit.point, distance: hit.distance };
+  }
+  if (!nearest) throw new Error('mapa sem vias');
 
-export const blockedEdges = (level: BlockLevel) => BLOCKED[level];
+  const { edge: reference } = nearest;
+  const roadWidth = (DRIVABLE_WIDTH_M[reference.kind] ?? 6) * M;
+  const direction = reference.dir;
+
+  // pista oposta: pode ser a própria via de mão dupla (distância 0) ou a outra pista de uma avenida dividida
+  let opposite: { point: Vec2; distance: number } | null = null;
+  for (const edge of GRAPH.edges) {
+    if (edge.dir[0] * direction[0] + edge.dir[1] * direction[1] > -0.5) continue;
+    const hit = nearestOnEdge(edge, nearest.point);
+    if (hit.distance <= DUAL_CARRIAGEWAY_MAX && (!opposite || hit.distance < opposite.distance)) opposite = hit;
+  }
+
+  let center: Vec2 = nearest.point;
+  let laneHalf = 0;
+  let carriage = roadWidth;
+  let width = roadWidth;
+
+  if (opposite && opposite.distance < 0.3) {
+    // via de mão dupla: uma pista para cada lado do eixo
+    laneHalf = roadWidth / 4;
+    carriage = roadWidth / 2;
+  } else if (opposite) {
+    center = [(nearest.point[0] + opposite.point[0]) / 2, (nearest.point[1] + opposite.point[1]) / 2];
+    laneHalf = Math.max(0.5, opposite.distance / 2);
+    width = laneHalf * 2 + carriage;
+  }
+
+  const normal: Vec2 = [-direction[1], direction[0]];
+  const side = (nearest.point[0] - center[0]) * normal[0] + (nearest.point[1] - center[1]) * normal[1];
+  const dir: Vec2 = side >= 0 ? direction : [-direction[0], -direction[1]];
+  const axisNormal: Vec2 = [-dir[1], dir[0]];
+
+  const compute = (level: BlockLevel) => {
+    const blocked = new Set<number>();
+    for (const edge of GRAPH.edges) {
+      const along = edge.dir[0] * direction[0] + edge.dir[1] * direction[1];
+      if (Math.abs(along) < 0.8) continue;
+      const dx = edge.mid[0] - center[0];
+      const dz = edge.mid[1] - center[1];
+      if (Math.hypot(dx, dz) > CLOSURE_RADIUS) continue;
+      if (Math.abs(dx * axisNormal[0] + dz * axisNormal[1]) > width / 2 + 0.8) continue;
+      if (level === 'total' || along > 0) blocked.add(edge.id);
+    }
+    return blocked;
+  };
+
+  return {
+    center,
+    angle: Math.atan2(-dir[1], dir[0]),
+    laneHalf,
+    width,
+    carriage,
+    streetName: reference.name,
+    blocked: { partial: compute('partial'), total: compute('total') },
+    detourCache: new Map(),
+  };
+}
 
 function dijkstra(start: number, blocked: Set<number>) {
   const dist = new Array<number>(GRAPH.nodes.length).fill(Infinity);
@@ -476,7 +495,6 @@ function pathEdges(via: number[], start: number, goal: number): Edge[] {
   return chain;
 }
 
-const detourCache = new Map<BlockLevel, Vec2[][]>();
 const MAX_APPROACH_HOPS = 20;
 
 const joinPts = (edges: Edge[]): Vec2[] => {
@@ -486,22 +504,22 @@ const joinPts = (edges: Edge[]): Vec2[] => {
 };
 
 /**
- * Rota alternativa (uma por pista bloqueada). Os trechos fechados ficam no meio da avenida,
- * então a rota começa no último cruzamento antes da obra e volta à avenida no primeiro nó
+ * Rota alternativa (uma por pista bloqueada). Os trechos fechados ficam no meio da via,
+ * então a rota começa no último cruzamento antes da obra e volta à via no primeiro nó
  * depois dela que ainda seja alcançável pelas ruas abertas.
  */
-export function detourPaths(level: BlockLevel): Vec2[][] {
-  const cached = detourCache.get(level);
+export function detourPaths(site: WorkSiteFrame, level: BlockLevel): Vec2[][] {
+  const cached = site.detourCache.get(level);
   if (cached) return cached;
 
-  const blocked = BLOCKED[level];
+  const blocked = site.blocked[level];
   const closed = [...blocked].map((id) => GRAPH.edges[id]);
   const paths: Vec2[][] = [];
 
   for (const head of closed) {
-    if (closed.some((e) => e.to === head.from)) continue;
+    if (closed.some((e) => e.to === head.from && e.from !== head.to)) continue;
     let tail = head;
-    for (let next = closed.find((e) => e.from === tail.to); next; next = closed.find((e) => e.from === tail.to)) {
+    for (let next = closed.find((e) => e.from === tail.to && e.to !== tail.from); next; next = closed.find((e) => e.from === tail.to && e.to !== tail.from)) {
       tail = next;
     }
 
@@ -524,20 +542,18 @@ export function detourPaths(level: BlockLevel): Vec2[][] {
       downstream.push({ node: forward.to, edges: [...last.edges, forward] });
     }
 
-    // menor saída a montante que consiga voltar à avenida a jusante sem passar pela obra
-    let found: Vec2[] | null = null;
+    // menor saída a montante que consiga voltar à via a jusante sem passar pela obra
     for (const from of upstream) {
       const { dist, via } = dijkstra(from.node, blocked);
       const to = downstream.find((d) => dist[d.node] < Infinity);
       if (!to) continue;
       const middle = pathEdges(via, from.node, to.node);
-      found = joinPts([...from.edges, ...middle, ...to.edges]);
+      paths.push(joinPts([...from.edges, ...middle, ...to.edges]));
       break;
     }
-    if (found) paths.push(found);
   }
 
-  detourCache.set(level, paths);
+  site.detourCache.set(level, paths);
   return paths;
 }
 
@@ -630,12 +646,69 @@ export const STREET_LABELS = buildStreetLabels();
 
 /* ---------- prédios ---------- */
 
-const PALETTE = ['#94a3b8', '#64748b', '#cbd5e1', '#a8a29e', '#78716c', '#475569', '#7c8b99', '#b8c4cf', '#d6d3d1', '#4f7f7a'];
+/** Fachadas em tons de prédio brasileiro: branco, bege, pastel e alguns cinzas. */
+const FACADES = ['#ece6da', '#ddd3c1', '#cfc4b0', '#f2ede3', '#c4baa8', '#d9cdb9', '#aab6bf', '#e6d9c4', '#cdbfa8', '#f4efe6'];
 
-export interface BuildingGeometries {
-  near: BufferGeometry | null;
-  far: BufferGeometry | null;
+const hexToRgb = (hex: string): [number, number, number] => {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
+};
+
+/* ---------- campus da FAESA ---------- */
+
+interface CampusBuilding {
+  /** centro da planta, em metros (como no OSM, para sobreviver a um novo download) */
+  at: Vec2;
+  heightM?: number;
 }
+
+/** Prédios do campus Vitória (Av. Vitória, 2220), identificados sobre a imagem de satélite. */
+const CAMPUS_BUILDINGS: CampusBuilding[] = [
+  { at: [-5, 29], heightM: 25.6 }, // torre principal, 8 pavimentos
+  { at: [-21, 19] },
+  { at: [-28, 39] },
+  { at: [-35, 46] },
+  { at: [-38, 31] },
+  { at: [-43, 27] },
+  { at: [8, 76] },
+  { at: [33, 110] },
+  { at: [-25, 73] },
+  { at: [-33, 88] },
+  { at: [-49, 86] },
+  { at: [-40, 71] },
+  { at: [-66, 52] },
+];
+
+const CAMPUS_FACADE: [number, number, number] = hexToRgb('#f3f1ec');
+
+/** Contorno aproximado do terreno do campus (prédios, estacionamento e pátio), em unidades da cena. */
+export const CAMPUS_OUTLINE: Vec2[] = (
+  [
+    [-71.5, 57],
+    [-64.1, 47],
+    [-41.4, 17.5],
+    [-39.7, 16.5],
+    [-8.6, 7.6],
+    [6.2, 5.3],
+    [33.7, 75.9],
+    [47.3, 122.9],
+    [25.4, 125.7],
+    [-51.2, 91.9],
+    [-55.3, 88.3],
+  ] as Vec2[]
+).map(([x, z]) => [x * M, z * M]);
+
+/** Onde fica o letreiro: sobre a torre principal. */
+export const CAMPUS_LABEL: { position: Vec2; heightM: number } = { position: [-5 * M, 29 * M], heightM: 25.6 };
+
+/** Passarela coberta que liga os blocos do campus. */
+export const CAMPUS_WALKWAY: { from: Vec2; to: Vec2 } = {
+  from: [-20.4 * M, 51.1 * M],
+  to: [0.9 * M, 79.9 * M],
+};
+
+/** Devolve a cor (0–1) da imagem de satélite no ponto (x, z) da cena, ou null se estiver fora dela. */
+export type RoofSampler = (x: number, z: number) => [number, number, number] | null;
 
 function polygonArea(pts: Vec2[]) {
   let area = 0;
@@ -647,23 +720,20 @@ function polygonArea(pts: Vec2[]) {
   return Math.abs(area) / 2;
 }
 
-let buildingGeometries: BuildingGeometries | null = null;
+function closedFootprint(building: RawBuilding): Vec2[] | null {
+  const pts = [...building.pts];
+  if (pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop();
+  return pts.length >= 3 ? pts : null;
+}
 
-export function getBuildingGeometries(): BuildingGeometries {
-  if (buildingGeometries) return buildingGeometries;
-
+export function getBuildingGeometry(sampleRoof?: RoofSampler): BufferGeometry | null {
   const random = createRandom(777);
-  const near: BufferGeometry[] = [];
-  const far: BufferGeometry[] = [];
-  const colors = PALETTE.map((hex) => {
-    const n = parseInt(hex.slice(1), 16);
-    return [(n >> 16) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255];
-  });
+  const geometries: BufferGeometry[] = [];
+  const facades = FACADES.map(hexToRgb);
 
   for (const building of data.buildings) {
-    const pts = [...building.pts];
-    if (pts.length > 1 && pts[0][0] === pts[pts.length - 1][0] && pts[0][1] === pts[pts.length - 1][1]) pts.pop();
-    if (pts.length < 3) continue;
+    const pts = closedFootprint(building);
+    if (!pts) continue;
 
     const area = polygonArea(pts);
     if (area < 8) continue;
@@ -672,6 +742,19 @@ export function getBuildingGeometries(): BuildingGeometries {
     let heightM = building.h ?? 6 + random() * 10;
     if (building.h === null && area > 250) heightM *= 1 + random() * 1.6;
     heightM = Math.min(heightM, 80);
+
+    let cx = 0;
+    let cz = 0;
+    for (const [x, z] of pts) {
+      cx += x * M;
+      cz += z * M;
+    }
+    cx /= pts.length;
+    cz /= pts.length;
+
+    // prédios do campus da FAESA: volumetria mínima de prédio universitário e fachada clara
+    const campus = CAMPUS_BUILDINGS.find((b) => Math.hypot(b.at[0] * M - cx, b.at[1] * M - cz) < 1);
+    if (campus) heightM = campus.heightM ?? Math.max(heightM, 10);
 
     let geometry: BufferGeometry;
     try {
@@ -683,33 +766,93 @@ export function getBuildingGeometries(): BuildingGeometries {
     geometry.rotateX(-Math.PI / 2);
     geometry.deleteAttribute('uv');
 
-    const [r, g, b] = colors[Math.floor(random() * colors.length)];
-    const shade = 0.5 + random() * 0.25;
-    const count = geometry.getAttribute('position').count;
-    const colorData = new Float32Array(count * 3);
-    for (let i = 0; i < count; i++) {
-      colorData[i * 3] = Math.min(1, r * shade);
-      colorData[i * 3 + 1] = Math.min(1, g * shade);
-      colorData[i * 3 + 2] = Math.min(1, b * shade);
+    const [fr, fg, fb] = facades[Math.floor(random() * facades.length)];
+    const wallShade = 0.68 + random() * 0.12;
+    const [wr, wg, wb] = campus ? CAMPUS_FACADE : [fr, fg, fb];
+
+    // telhado com a cor real vista do alto; sem satélite, um cinza de laje
+    const sampled = sampleRoof?.(cx, cz);
+    const roof = sampled ? sampled.map((c) => c * 0.8) : [0.45, 0.45, 0.47];
+
+    const position = geometry.getAttribute('position');
+    const normal = geometry.getAttribute('normal');
+    const colorData = new Float32Array(position.count * 3);
+    for (let i = 0; i < position.count; i++) {
+      const isRoof = normal.getY(i) > 0.5;
+      colorData[i * 3] = isRoof ? roof[0] : Math.min(1, wr * wallShade);
+      colorData[i * 3 + 1] = isRoof ? roof[1] : Math.min(1, wg * wallShade);
+      colorData[i * 3 + 2] = isRoof ? roof[2] : Math.min(1, wb * wallShade);
     }
     geometry.setAttribute('color', new BufferAttribute(colorData, 3));
 
-    let cx = 0;
-    let cz = 0;
-    for (const [x, z] of pts) {
-      cx += x * M;
-      cz += z * M;
-    }
-    cx /= pts.length;
-    cz /= pts.length;
-    const isNear = Math.hypot(cx - WORK_FRAME.center[0], cz - WORK_FRAME.center[1]) <= IMPACT_RADIUS;
-    (isNear ? near : far).push(geometry);
+    geometries.push(geometry);
   }
 
-  buildingGeometries = {
-    near: near.length ? mergeGeometries(near, false) : null,
-    far: far.length ? mergeGeometries(far, false) : null,
-  };
-  [...near, ...far].forEach((g) => g.dispose());
-  return buildingGeometries;
+  const merged = geometries.length ? mergeGeometries(geometries, false) : null;
+  geometries.forEach((g) => g.dispose());
+  return merged;
+}
+
+/* ---------- árvores ---------- */
+
+export interface TreeSpot {
+  x: number;
+  z: number;
+  scale: number;
+  tint: number;
+}
+
+function insidePolygon(x: number, z: number, poly: Vec2[]) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, zi] = poly[i];
+    const [xj, zj] = poly[j];
+    if (zi > z !== zj > z && x < ((xj - xi) * (z - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
+}
+
+let treeSpots: TreeSpot[] | null = null;
+
+/** Arborização das calçadas: uma árvore a cada poucos metros, fora da planta dos prédios. */
+export function getTrees(): TreeSpot[] {
+  if (treeSpots) return treeSpots;
+
+  const random = createRandom(4242);
+  const footprints = data.buildings
+    .map(closedFootprint)
+    .filter((pts): pts is Vec2[] => pts !== null)
+    .map((pts) => {
+      const poly = pts.map(([x, z]) => [x * M, z * M] as Vec2);
+      const xs = poly.map((p) => p[0]);
+      const zs = poly.map((p) => p[1]);
+      return { poly, minX: Math.min(...xs), maxX: Math.max(...xs), minZ: Math.min(...zs), maxZ: Math.max(...zs) };
+    });
+
+  const blocked = (x: number, z: number) =>
+    footprints.some((f) => x >= f.minX && x <= f.maxX && z >= f.minZ && z <= f.maxZ && insidePolygon(x, z, f.poly));
+
+  const spots: TreeSpot[] = [];
+  const sample: Sample = { x: 0, z: 0, dx: 0, dz: 0 };
+
+  for (const road of DRIVABLE_ROADS) {
+    if (road.kind === 'service' || road.kind === 'primary_link') continue;
+    const cum = cumulative(road.pts);
+    const total = cum[cum.length - 1];
+    const chance = road.kind === 'primary' ? 0.4 : 0.6;
+
+    for (let s = 2 + random() * 2; s < total - 2; s += 3 + random() * 1.5) {
+      if (random() > chance) continue;
+      sampleAt(road.pts, cum, s, sample);
+      const side = random() < 0.5 ? 1 : -1;
+      const offset = road.width / 2 + 0.55;
+      const x = sample.x - sample.dz * side * offset;
+      const z = sample.z + sample.dx * side * offset;
+      if (blocked(x, z)) continue;
+      spots.push({ x, z, scale: 0.8 + random() * 0.7, tint: random() });
+    }
+  }
+
+  treeSpots = spots;
+  return spots;
 }

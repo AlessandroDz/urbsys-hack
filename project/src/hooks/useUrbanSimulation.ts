@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import type { Placement } from '@/components/scene/CityScene';
 import { computeDiagnosis, type Diagnosis, type WorkParams } from '@/lib/diagnosis';
 import { WORK_DEFINITIONS, type WorkId } from '@/lib/interventions';
 
@@ -8,6 +9,7 @@ const DIAGNOSIS_DELAY_MS = 1500;
 
 export function useUrbanSimulation() {
   const [activeWork, setActiveWork] = useState<WorkId | null>(null);
+  const [placement, setPlacement] = useState<Placement | null>(null);
   const [params, setParams] = useState<WorkParams>({ duration: 6, level: 'partial', scope: '' });
   const [status, setStatus] = useState<DiagnosisStatus>('idle');
   const [diagnosis, setDiagnosis] = useState<Diagnosis | null>(null);
@@ -15,9 +17,10 @@ export function useUrbanSimulation() {
 
   const definition = activeWork ? WORK_DEFINITIONS[activeWork] : null;
 
-  const selectWork = useCallback((id: WorkId) => {
+  const selectWork = useCallback((id: WorkId, point: Placement) => {
     const work = WORK_DEFINITIONS[id];
     setActiveWork(id);
+    setPlacement(point);
     setParams({ duration: work.defaultDuration, level: work.defaultLevel, scope: work.defaultScope });
     setStatus('idle');
     setDiagnosis(null);
@@ -52,6 +55,7 @@ export function useUrbanSimulation() {
 
   return {
     activeWork,
+    placement,
     definition,
     params,
     status,

@@ -1,36 +1,40 @@
-import type { DragEvent } from 'react';
-import { CityScene } from '@/components/scene/CityScene';
+import { useRef, useState } from 'react';
+import { CityScene, type CitySceneHandle } from '@/components/scene/CityScene';
+import { DEFAULT_LAYERS, type Layers } from '@/components/scene/layers';
 import { DiagnosisDrawer } from '@/components/ui/diagnosis/DiagnosisDrawer';
 import { Header } from '@/components/ui/Header';
 import { InterventionsPanel } from '@/components/ui/InterventionsPanel';
+import { LayersPanel } from '@/components/ui/LayersPanel';
 import { ParametersCard } from '@/components/ui/ParametersCard';
 import { useUrbanSimulation } from '@/hooks/useUrbanSimulation';
-import { isWorkId } from '@/lib/interventions';
 
 export default function App() {
   const sim = useUrbanSimulation();
-  const { activeWork, definition, params, status, diagnosis, drawerOpen } = sim;
+  const { activeWork, placement, definition, params, status, diagnosis, drawerOpen } = sim;
 
-  const handleDragOver = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.dataTransfer.dropEffect = 'copy';
-  };
-
-  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    const id = event.dataTransfer.getData('text/plain');
-    if (isWorkId(id)) sim.selectWork(id);
-  };
+  const sceneRef = useRef<CitySceneHandle>(null);
+  const [layers, setLayers] = useState<Layers>(DEFAULT_LAYERS);
 
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-slate-950 font-sans text-slate-100 antialiased">
-      <div className="absolute inset-0" onDragOver={handleDragOver} onDrop={handleDrop}>
-        <CityScene activeWork={activeWork} level={params.level} />
-      </div>
+      <CityScene
+        ref={sceneRef}
+        activeWork={activeWork}
+        level={params.level}
+        placement={placement}
+        layers={layers}
+        onDropWork={sim.selectWork}
+      />
+
+      <LayersPanel layers={layers} onChange={setLayers} />
+
+      <p className="pointer-events-none absolute bottom-1 left-2 z-10 text-[10px] text-white/70 [text-shadow:0_1px_2px_rgba(0,0,0,0.8)]">
+        Imagem: Esri, Maxar, Earthstar Geographics · Mapa: © colaboradores do OpenStreetMap
+      </p>
 
       <Header isCritical={activeWork !== null} />
 
-      <InterventionsPanel activeWork={activeWork} hidden={drawerOpen} onSelect={sim.selectWork} />
+      <InterventionsPanel activeWork={activeWork} hidden={drawerOpen} onSelect={(id) => sim.selectWork(id, sceneRef.current?.viewCenter() ?? [0, 0])} />
 
       {definition && (
         <ParametersCard
@@ -45,7 +49,7 @@ export default function App() {
 
       {!definition && (
         <p className="pointer-events-none absolute bottom-6 left-1/2 hidden -translate-x-1/2 rounded-full border border-white/10 bg-slate-950/70 px-4 py-2 text-xs text-slate-400 backdrop-blur-xl md:block">
-          Arraste uma intervenção para o mapa · Clique e arraste para girar · Use a roda do mouse para zoom
+          Arraste uma intervenção para qualquer rua · Arraste o mapa para mover · Botão direito para girar · Roda do mouse para zoom
         </p>
       )}
 

@@ -1,18 +1,28 @@
 import { useFrame } from '@react-three/fiber';
-import { useRef } from 'react';
+import { createContext, useContext, useRef } from 'react';
 import type { Group, MeshBasicMaterial, MeshStandardMaterial } from 'three';
 import type { BlockLevel, WorkId } from '@/lib/interventions';
 import { ROAD_TOP } from './cityLayout';
-import { CLOSURE_RADIUS, WORK_FRAME } from './mapData';
+import { CLOSURE_RADIUS, type WorkSiteFrame } from './mapData';
 
 const CLOSURE_COLOR = '#ef4444';
 const BARRIER_COLOR = '#f59e0b';
 const CLOSURE_LENGTH = CLOSURE_RADIUS * 2;
 const BARRIER_OFFSET = CLOSURE_RADIUS;
-const LANE_Z = WORK_FRAME.laneHalf;
-const AVENUE_WIDTH = WORK_FRAME.width;
-const CARRIAGE_WIDTH = WORK_FRAME.carriage;
-const HALF_WIDTH = AVENUE_WIDTH / 2;
+
+const SiteContext = createContext<WorkSiteFrame | null>(null);
+
+/** Medidas da via onde a obra foi colocada. */
+function useDims() {
+  const site = useContext(SiteContext);
+  if (!site) throw new Error('WorkSite fora do contexto da obra');
+  return {
+    LANE_Z: site.laneHalf,
+    AVENUE_WIDTH: site.width,
+    CARRIAGE_WIDTH: site.carriage,
+    HALF_WIDTH: site.width / 2,
+  };
+}
 
 type Vec3 = [number, number, number];
 
@@ -33,6 +43,7 @@ function PulsingPlane({ args, position, rotation }: { args: [number, number]; po
 }
 
 function ClosureOverlay({ level }: { level: BlockLevel }) {
+  const { LANE_Z, AVENUE_WIDTH, CARRIAGE_WIDTH } = useDims();
   const flat: Vec3 = [-Math.PI / 2, 0, 0];
   const y = ROAD_TOP + 0.02;
   return (
@@ -47,6 +58,7 @@ function ClosureOverlay({ level }: { level: BlockLevel }) {
 }
 
 function Barriers({ level }: { level: BlockLevel }) {
+  const { LANE_Z, AVENUE_WIDTH, CARRIAGE_WIDTH } = useDims();
   const y = ROAD_TOP + 0.35;
   const total = level === 'total';
   const z = total ? 0 : LANE_Z;
@@ -135,6 +147,7 @@ function Machine({ kind, z, phase, range }: MachineProps) {
 }
 
 function UnderpassSite() {
+  const { LANE_Z, AVENUE_WIDTH, HALF_WIDTH } = useDims();
   const crane = useRef<Group>(null);
 
   useFrame(({ clock }) => {
@@ -173,6 +186,7 @@ function UnderpassSite() {
 }
 
 function ViaductSite() {
+  const { LANE_Z, AVENUE_WIDTH, HALF_WIDTH } = useDims();
   const pillarPositions: Vec3[] = [
     [-6, 1.7, -HALF_WIDTH],
     [-6, 1.7, HALF_WIDTH],
@@ -200,6 +214,7 @@ function ViaductSite() {
 }
 
 function ResurfacingSite() {
+  const { LANE_Z, AVENUE_WIDTH } = useDims();
   return (
     <group>
       <mesh position={[0, ROAD_TOP + 0.012, 0]} rotation={[-Math.PI / 2, 0, 0]}>
@@ -213,6 +228,7 @@ function ResurfacingSite() {
 }
 
 function BikeLaneSite() {
+  const { HALF_WIDTH } = useDims();
   const lanes = [-1, 1];
   return (
     <group>
@@ -245,15 +261,18 @@ const SITE_BY_WORK: Record<WorkId, () => JSX.Element> = {
 interface WorkSiteProps {
   workId: WorkId;
   level: BlockLevel;
+  site: WorkSiteFrame;
 }
 
-export function WorkSite({ workId, level }: WorkSiteProps) {
+export function WorkSite({ workId, level, site }: WorkSiteProps) {
   const Site = SITE_BY_WORK[workId];
   return (
-    <group position={[WORK_FRAME.center[0], 0, WORK_FRAME.center[1]]} rotation={[0, WORK_FRAME.angle, 0]}>
-      <ClosureOverlay level={level} />
-      <Barriers level={level} />
-      <Site />
-    </group>
+    <SiteContext.Provider value={site}>
+      <group position={[site.center[0], 0, site.center[1]]} rotation={[0, site.angle, 0]}>
+        <ClosureOverlay level={level} />
+        <Barriers level={level} />
+        <Site />
+      </group>
+    </SiteContext.Provider>
   );
 }

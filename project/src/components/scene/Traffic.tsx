@@ -8,12 +8,11 @@ import { ROAD_TOP, createRandom } from './cityLayout';
 import {
   CLOSURE_RADIUS,
   GRAPH,
-  WORK_FRAME,
-  blockedEdges,
   detourPaths,
   sampleAt,
   type Edge,
   type Sample,
+  type WorkSiteFrame,
 } from './mapData';
 
 const QUEUE_RADIUS = CLOSURE_RADIUS * 2.2;
@@ -58,16 +57,16 @@ function DetourRouteLine({ points }: { points: Vec3[] }) {
   );
 }
 
-function DetourRoutes({ level }: { level: BlockLevel }) {
+function DetourRoutes({ site, level }: { site: WorkSiteFrame; level: BlockLevel }) {
   const paths = useMemo(
-    () => detourPaths(level).map((path) => path.map(([x, z]) => [x, ROAD_TOP + 0.03, z] as Vec3)),
-    [level],
+    () => detourPaths(site, level).map((path) => path.map(([x, z]) => [x, ROAD_TOP + 0.03, z] as Vec3)),
+    [site, level],
   );
 
   return (
     <group>
       {paths.map((points, index) => (
-        <DetourRouteLine key={`${level}-${index}`} points={points} />
+        <DetourRouteLine key={`${site.center.join()}-${level}-${index}`} points={points} />
       ))}
     </group>
   );
@@ -175,9 +174,10 @@ function createVehicles(spawn: (blocked: ReadonlySet<number>) => Edge, random: (
 interface TrafficProps {
   active: boolean;
   level: BlockLevel;
+  site: WorkSiteFrame;
 }
 
-export function Traffic({ active, level }: TrafficProps) {
+export function Traffic({ active, level, site }: TrafficProps) {
   const random = useMemo(() => createRandom(99), []);
   const spawn = useMemo(() => createSpawner(random), [random]);
   const vehicles = useMemo(() => createVehicles(spawn, random), [spawn, random]);
@@ -186,8 +186,8 @@ export function Traffic({ active, level }: TrafficProps) {
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.05);
-    const blocked = active ? blockedEdges(level) : NO_EDGES;
-    const [cx, cz] = WORK_FRAME.center;
+    const blocked = active ? site.blocked[level] : NO_EDGES;
+    const [cx, cz] = site.center;
 
     vehicles.forEach((vehicle, index) => {
       const node = nodes.current[index];
@@ -236,7 +236,7 @@ export function Traffic({ active, level }: TrafficProps) {
 
   return (
     <group>
-      {active && <DetourRoutes level={level} />}
+      {active && <DetourRoutes site={site} level={level} />}
       {vehicles.map((vehicle, index) => {
         const size = SIZES[vehicle.kind];
         return (
