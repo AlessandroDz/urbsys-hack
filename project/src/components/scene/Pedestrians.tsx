@@ -2,32 +2,24 @@ import { useFrame } from '@react-three/fiber';
 import { useMemo, useRef } from 'react';
 import type { Group, Mesh } from 'three';
 import type { BlockLevel } from '@/lib/interventions';
-import {
-  BANDS,
-  CORE_HALF_LENGTH,
-  LOOP_HALF_LENGTH,
-  ROAD_TOP,
-  SIDEWALK_TOP,
-  createRandom,
-  halfWidthOf,
-} from './cityLayout';
+import { FOOTPATH_TOP, createRandom } from './cityLayout';
+import { CLOSURE_RADIUS, WALK_PATHS, WORK_FRAME, sampleAt, type Sample, type WalkPath } from './mapData';
 
-type Axis = 'x' | 'z';
-type Side = 1 | -1;
+type Dir = 1 | -1;
 
 interface Pedestrian {
-  axis: Axis;
-  band: number;
-  side: Side;
-  dir: Side;
+  path: WalkPath;
+  dir: Dir;
   pos: number;
-  lateral: number;
   speed: number;
   phase: number;
   shirtColor: string;
   pantsColor: string;
   skinColor: string;
 }
+
+const PEDESTRIAN_COUNT = 70;
+const WORK_AVOID_RADIUS = CLOSURE_RADIUS * 1.2;
 
 const SHIRT_COLORS = [
   '#38bdf8',
@@ -42,47 +34,34 @@ const SHIRT_COLORS = [
 ];
 const PANTS_COLORS = ['#1e293b', '#334155', '#1e3a8a', '#3f3f46', '#0f172a'];
 const SKIN_COLORS = ['#fde68a', '#fed7aa', '#f59e0b', '#d97706', '#92400e'];
-const WALK_BANDS = [-18, -9, 0, 9, 18];
-
-function isCrossingRoad(pos: number): boolean {
-  for (const b of BANDS) {
-    if (Math.abs(pos - b) < halfWidthOf(b)) {
-      return true;
-    }
-  }
-  return false;
-}
 
 function createPedestrians(): Pedestrian[] {
   const random = createRandom(31415);
   const list: Pedestrian[] = [];
-  const axes: Axis[] = ['x', 'z'];
-  const sides: Side[] = [-1, 1];
+  const totalLength = WALK_PATHS.reduce((sum, p) => sum + p.length, 0);
 
-  for (const axis of axes) {
-    for (const band of WALK_BANDS) {
-      const countPerSide = band === 0 ? 5 : 2;
-      for (const side of sides) {
-        for (let i = 0; i < countPerSide; i++) {
-          const dir: Side = random() < 0.5 ? 1 : -1;
-          const sidewalkCenter = halfWidthOf(band) + 0.42;
-          const jitter = (random() - 0.5) * 0.22;
-          list.push({
-            axis,
-            band,
-            side,
-            dir,
-            pos: (random() * 2 - 1) * (LOOP_HALF_LENGTH - 2),
-            lateral: band + side * sidewalkCenter + jitter,
-            speed: 1.05 + random() * 0.55,
-            phase: random() * Math.PI * 2,
-            shirtColor: SHIRT_COLORS[Math.floor(random() * SHIRT_COLORS.length)],
-            pantsColor: PANTS_COLORS[Math.floor(random() * PANTS_COLORS.length)],
-            skinColor: SKIN_COLORS[Math.floor(random() * SKIN_COLORS.length)],
-          });
-        }
+  for (let i = 0; i < PEDESTRIAN_COUNT; i++) {
+    // sorteio proporcional ao comprimento: ruas longas têm mais gente
+    let pick = random() * totalLength;
+    let path = WALK_PATHS[0];
+    for (const candidate of WALK_PATHS) {
+      pick -= candidate.length;
+      if (pick <= 0) {
+        path = candidate;
+        break;
       }
     }
+
+    list.push({
+      path,
+      dir: random() < 0.5 ? 1 : -1,
+      pos: random() * path.length,
+      speed: 1.05 + random() * 0.55,
+      phase: random() * Math.PI * 2,
+      shirtColor: SHIRT_COLORS[Math.floor(random() * SHIRT_COLORS.length)],
+      pantsColor: PANTS_COLORS[Math.floor(random() * PANTS_COLORS.length)],
+      skinColor: SKIN_COLORS[Math.floor(random() * SKIN_COLORS.length)],
+    });
   }
 
   return list;
@@ -93,48 +72,49 @@ interface PedestriansProps {
   level: BlockLevel;
 }
 
-export function Pedestrians({ active, level }: PedestriansProps) {
+export function Pedestrians({ active }: PedestriansProps) {
   const pedestrians = useMemo(createPedestrians, []);
   const groupRefs = useRef<(Group | null)[]>([]);
   const leftLegRefs = useRef<(Mesh | null)[]>([]);
   const rightLegRefs = useRef<(Mesh | null)[]>([]);
+  const sample = useRef<Sample>({ x: 0, z: 0, dx: 0, dz: 0 });
 
   useFrame(({ clock }, delta) => {
     const dt = Math.min(delta, 0.05);
     const t = clock.elapsedTime;
+    const [cx, cz] = WORK_FRAME.center;
 
     pedestrians.forEach((ped, index) => {
       const node = groupRefs.current[index];
       if (!node) return;
 
-      const nearWork = active && ped.band === 0 && Math.abs(ped.pos) < CORE_HALF_LENGTH - 1.2;
-      const blockedSide = level === 'total' || ped.side > 0;
+      const { path } = ped;
+      sampleAt(path.pts, path.cum, ped.pos, sample.current);
+      const nearWork = active && Math.hypot(sample.current.x - cx, sample.current.z - cz) < WORK_AVOID_RADIUS;
 
-      // Se a calçada estiver interditada pela obra central, o pedestre dá meia-volta na barreira
-      if (nearWork && blockedSide) {
-        const approachingCenter = (ped.pos > 0 && ped.dir < 0) || (ped.pos < 0 && ped.dir > 0);
-        if (approachingCenter) {
-          ped.dir = (ped.dir === 1 ? -1 : 1) as Side;
-        }
+      // A calçada ao lado da obra está interditada: o pedestre dá meia-volta na barreira
+      if (nearWork) {
+        const toCenterX = cx - sample.current.x;
+        const toCenterZ = cz - sample.current.z;
+        const heading = (sample.current.dx * toCenterX + sample.current.dz * toCenterZ) * ped.dir;
+        if (heading > 0) ped.dir = (ped.dir === 1 ? -1 : 1) as Dir;
       }
 
-      const speedFactor = nearWork ? 0.65 : 1;
-      ped.pos += ped.dir * ped.speed * speedFactor * dt;
+      ped.pos += ped.dir * ped.speed * (nearWork ? 0.65 : 1) * dt;
+      if (ped.pos >= path.length) {
+        ped.pos = path.length;
+        ped.dir = -1;
+      } else if (ped.pos <= 0) {
+        ped.pos = 0;
+        ped.dir = 1;
+      }
 
-      if (ped.pos > LOOP_HALF_LENGTH) ped.pos = -LOOP_HALF_LENGTH;
-      if (ped.pos < -LOOP_HALF_LENGTH) ped.pos = LOOP_HALF_LENGTH;
-
+      sampleAt(path.pts, path.cum, ped.pos, sample.current);
       const strideAngle = t * ped.speed * 7.5 + ped.phase;
       const bounce = Math.abs(Math.sin(strideAngle)) * 0.035;
-      const surfaceY = isCrossingRoad(ped.pos) ? ROAD_TOP : SIDEWALK_TOP;
 
-      if (ped.axis === 'x') {
-        node.position.set(ped.pos, surfaceY + bounce, ped.lateral);
-        node.rotation.y = ped.dir === 1 ? Math.PI / 2 : -Math.PI / 2;
-      } else {
-        node.position.set(ped.lateral, surfaceY + bounce, ped.pos);
-        node.rotation.y = ped.dir === 1 ? 0 : Math.PI;
-      }
+      node.position.set(sample.current.x, FOOTPATH_TOP + bounce, sample.current.z);
+      node.rotation.y = Math.atan2(sample.current.dx * ped.dir, sample.current.dz * ped.dir);
 
       const legSwing = Math.sin(strideAngle) * 0.5;
       const leftLeg = leftLegRefs.current[index];

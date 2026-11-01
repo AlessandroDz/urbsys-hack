@@ -4,151 +4,27 @@ import { useMemo, useRef } from 'react';
 import type { Group } from 'three';
 import type { Line2 } from 'three-stdlib';
 import type { BlockLevel } from '@/lib/interventions';
+import { ROAD_TOP, createRandom } from './cityLayout';
 import {
-  DETOUR_OFFSET,
-  LANE_OFFSET,
-  LOOP_HALF_LENGTH,
-  QUEUE_HALF_LENGTH,
-  ROAD_TOP,
-  createRandom,
-} from './cityLayout';
+  CLOSURE_RADIUS,
+  GRAPH,
+  WORK_FRAME,
+  blockedEdges,
+  detourPaths,
+  sampleAt,
+  type Edge,
+  type Sample,
+} from './mapData';
 
-type Axis = 'x' | 'z';
-type Side = 1 | -1;
+const QUEUE_RADIUS = CLOSURE_RADIUS * 2.2;
+const LANE_SHIFT = 0.4;
+const VEHICLE_COUNT = 90;
+const NO_EDGES: ReadonlySet<number> = new Set();
+
 type Vec3 = [number, number, number];
 
-const CROSS_STREET_POS = 9.0;
-const CORNER_RADIUS = 1.4;
-const TURN_ENTRY_U = -CROSS_STREET_POS - CORNER_RADIUS; // -10.4
-const TURN_EXIT_U = CROSS_STREET_POS + CORNER_RADIUS; // +10.4
-const ROUTE_LEAD_U = 14.5;
-
-const ARC_LEN = CORNER_RADIUS * (Math.PI / 2);
-const CROSS_LEN = DETOUR_OFFSET - LANE_OFFSET - 2 * CORNER_RADIUS;
-const PARALLEL_LEN = 2 * (CROSS_STREET_POS - CORNER_RADIUS);
-const TOTAL_DETOUR_LEN = 4 * ARC_LEN + 2 * CROSS_LEN + PARALLEL_LEN;
-
-interface PathSample {
-  u: number;
-  w: number;
-  du: number;
-  dw: number;
-}
-
-function sampleDetourPath(s: number, entryU: number): PathSample {
-  const clamped = Math.max(0, Math.min(TOTAL_DETOUR_LEN, s));
-  let rem = clamped;
-
-  // 1. Curva 90° saindo da avenida principal para a rua transversal (-9)
-  if (rem <= ARC_LEN) {
-    const alpha = rem / CORNER_RADIUS;
-    return {
-      u: entryU + CORNER_RADIUS * Math.sin(alpha),
-      w: LANE_OFFSET + CORNER_RADIUS * (1 - Math.cos(alpha)),
-      du: Math.cos(alpha),
-      dw: Math.sin(alpha),
-    };
-  }
-  rem -= ARC_LEN;
-
-  const cross1U = entryU + CORNER_RADIUS;
-
-  // 2. Trecho reto na rua transversal de desvio
-  if (rem <= CROSS_LEN) {
-    return {
-      u: cross1U,
-      w: LANE_OFFSET + CORNER_RADIUS + rem,
-      du: 0,
-      dw: 1,
-    };
-  }
-  rem -= CROSS_LEN;
-
-  // 3. Curva 90° entrando na via paralela (±9)
-  if (rem <= ARC_LEN) {
-    const alpha = rem / CORNER_RADIUS;
-    return {
-      u: cross1U + CORNER_RADIUS * (1 - Math.cos(alpha)),
-      w: DETOUR_OFFSET - CORNER_RADIUS + CORNER_RADIUS * Math.sin(alpha),
-      du: Math.sin(alpha),
-      dw: Math.cos(alpha),
-    };
-  }
-  rem -= ARC_LEN;
-
-  // 4. Trecho reto na via paralela contornando a obra
-  const parallelStartU = cross1U + CORNER_RADIUS;
-  const effectiveParallelLen = CROSS_STREET_POS - CORNER_RADIUS - parallelStartU;
-  if (rem <= PARALLEL_LEN) {
-    const t = rem / PARALLEL_LEN;
-    return {
-      u: parallelStartU + t * effectiveParallelLen,
-      w: DETOUR_OFFSET,
-      du: 1,
-      dw: 0,
-    };
-  }
-  rem -= PARALLEL_LEN;
-
-  // 5. Curva 90° saindo da via paralela para a segunda rua transversal (+9)
-  if (rem <= ARC_LEN) {
-    const alpha = rem / CORNER_RADIUS;
-    return {
-      u: CROSS_STREET_POS - CORNER_RADIUS + CORNER_RADIUS * Math.sin(alpha),
-      w: DETOUR_OFFSET - CORNER_RADIUS * (1 - Math.cos(alpha)),
-      du: Math.cos(alpha),
-      dw: -Math.sin(alpha),
-    };
-  }
-  rem -= ARC_LEN;
-
-  // 6. Trecho reto voltando pela rua transversal (+9) até a avenida principal
-  if (rem <= CROSS_LEN) {
-    return {
-      u: CROSS_STREET_POS,
-      w: DETOUR_OFFSET - CORNER_RADIUS - rem,
-      du: 0,
-      dw: -1,
-    };
-  }
-  rem -= CROSS_LEN;
-
-  // 7. Curva 90° final reentrando na avenida principal
-  const alpha = Math.min(Math.PI / 2, rem / CORNER_RADIUS);
-  return {
-    u: CROSS_STREET_POS + CORNER_RADIUS * (1 - Math.cos(alpha)),
-    w: LANE_OFFSET + CORNER_RADIUS * (1 - Math.sin(alpha)),
-    du: Math.sin(alpha),
-    dw: -Math.cos(alpha),
-  };
-}
-
-function toWorldPoint(axis: Axis, side: Side, u: number, w: number, y: number): Vec3 {
-  const x = axis === 'x' ? side * u : side * w;
-  const z = axis === 'x' ? side * w : side * u;
-  return [x, y, z];
-}
-
-function buildDetourRoutePoints(axis: Axis, side: Side): Vec3[] {
-  const y = ROAD_TOP + 0.03;
-  const points: Vec3[] = [toWorldPoint(axis, side, -ROUTE_LEAD_U, LANE_OFFSET, y)];
-  const steps = 64;
-
-  for (let i = 0; i <= steps; i++) {
-    const s = (i / steps) * TOTAL_DETOUR_LEN;
-    const sample = sampleDetourPath(s, TURN_ENTRY_U);
-    points.push(toWorldPoint(axis, side, sample.u, sample.w, y));
-  }
-
-  points.push(toWorldPoint(axis, side, ROUTE_LEAD_U, LANE_OFFSET, y));
-  return points;
-}
-
-function DetourRouteLine({ axis, side }: { axis: Axis; side: Side }) {
+function DetourRouteLine({ points }: { points: Vec3[] }) {
   const dashedLineRef = useRef<Line2>(null);
-  const points = useMemo(() => buildDetourRoutePoints(axis, side), [axis, side]);
-  const entryPoint = useMemo(() => toWorldPoint(axis, side, TURN_ENTRY_U, LANE_OFFSET, ROAD_TOP + 0.032), [axis, side]);
-  const exitPoint = useMemo(() => toWorldPoint(axis, side, TURN_EXIT_U, LANE_OFFSET, ROAD_TOP + 0.032), [axis, side]);
 
   useFrame((_, delta) => {
     if (dashedLineRef.current?.material) {
@@ -172,7 +48,7 @@ function DetourRouteLine({ axis, side }: { axis: Axis; side: Side }) {
         gapSize={0.55}
       />
       {/* Marcadores de início e retorno do desvio */}
-      {[entryPoint, exitPoint].map((pt, idx) => (
+      {[points[0], points[points.length - 1]].map((pt, idx) => (
         <mesh key={idx} position={pt} rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[0.18, 0.34, 20]} />
           <meshBasicMaterial color="#38bdf8" />
@@ -183,14 +59,16 @@ function DetourRouteLine({ axis, side }: { axis: Axis; side: Side }) {
 }
 
 function DetourRoutes({ level }: { level: BlockLevel }) {
-  const sides: Side[] = level === 'total' ? [1, -1] : [1];
-  const axes: Axis[] = ['x', 'z'];
+  const paths = useMemo(
+    () => detourPaths(level).map((path) => path.map(([x, z]) => [x, ROAD_TOP + 0.03, z] as Vec3)),
+    [level],
+  );
 
   return (
     <group>
-      {axes.map((axis) =>
-        sides.map((side) => <DetourRouteLine key={`${axis}-${side}`} axis={axis} side={side} />),
-      )}
+      {paths.map((points, index) => (
+        <DetourRouteLine key={`${level}-${index}`} points={points} />
+      ))}
     </group>
   );
 }
@@ -202,17 +80,12 @@ function lerpAngle(current: number, target: number, t: number): number {
 }
 
 interface Vehicle {
-  axis: Axis;
-  side: Side;
   kind: 'car' | 'bus';
   color: string;
-  u: number;
-  w: number;
+  edge: Edge;
+  s: number;
   baseSpeed: number;
   speed: number;
-  onDetour: boolean;
-  detourDist: number;
-  detourEntryU: number;
   heading: number;
 }
 
@@ -222,43 +95,78 @@ const SIZES = {
   car: { length: 1.5, width: 0.7, height: 0.6 },
   bus: { length: 2.8, width: 0.9, height: 1.0 },
 };
-const VEHICLES_PER_LANE: Record<Axis, number> = { x: 6, z: 4 };
 
-function initialHeading(axis: Axis, side: Side): number {
-  const dx = axis === 'x' ? side : 0;
-  const dz = axis === 'z' ? side : 0;
-  return Math.atan2(-dz, dx);
+const KIND_WEIGHT: Record<string, number> = { primary: 4, tertiary: 2.5, primary_link: 1, unclassified: 1, residential: 1 };
+
+function createSpawner(random: () => number) {
+  const weights = GRAPH.edges.map((e) => e.length * (KIND_WEIGHT[e.kind] ?? 1));
+
+  return (blocked: ReadonlySet<number>): Edge => {
+    let total = 0;
+    for (let i = 0; i < weights.length; i++) if (!blocked.has(i)) total += weights[i];
+    let pick = random() * total;
+    for (let i = 0; i < weights.length; i++) {
+      if (blocked.has(i)) continue;
+      pick -= weights[i];
+      if (pick <= 0) return GRAPH.edges[i];
+    }
+    return GRAPH.edges[0];
+  };
 }
 
-function createVehicles(): Vehicle[] {
-  const random = createRandom(99);
-  const vehicles: Vehicle[] = [];
-  const axes: Axis[] = ['x', 'z'];
-  const sides: Side[] = [1, -1];
+function endDirection(edge: Edge): [number, number] {
+  const a = edge.pts[edge.pts.length - 2];
+  const b = edge.pts[edge.pts.length - 1];
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  return [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+}
 
-  for (const axis of axes) {
-    for (const side of sides) {
-      for (let i = 0; i < VEHICLES_PER_LANE[axis]; i++) {
-        const isBus = random() < 0.12;
-        const baseSpeed = isBus ? 2.2 + random() * 0.6 : 3 + random() * 1.4;
-        vehicles.push({
-          axis,
-          side,
-          kind: isBus ? 'bus' : 'car',
-          color: isBus
-            ? BUS_COLORS[Math.floor(random() * BUS_COLORS.length)]
-            : CAR_COLORS[Math.floor(random() * CAR_COLORS.length)],
-          u: (random() * 2 - 1) * LOOP_HALF_LENGTH,
-          w: LANE_OFFSET,
-          baseSpeed,
-          speed: baseSpeed,
-          onDetour: false,
-          detourDist: 0,
-          detourEntryU: TURN_ENTRY_U,
-          heading: initialHeading(axis, side),
-        });
-      }
-    }
+function startDirection(edge: Edge): [number, number] {
+  const a = edge.pts[0];
+  const b = edge.pts[1];
+  const len = Math.hypot(b[0] - a[0], b[1] - a[1]) || 1;
+  return [(b[0] - a[0]) / len, (b[1] - a[1]) / len];
+}
+
+function chooseNext(edge: Edge, blocked: ReadonlySet<number>, random: () => number): Edge | null {
+  const options = GRAPH.outgoing[edge.to].filter((id) => !blocked.has(id));
+  const forward = options.filter((id) => GRAPH.edges[id].to !== edge.from);
+  const pool = forward.length ? forward : options;
+  if (!pool.length) return null;
+
+  const heading = endDirection(edge);
+  const weights = pool.map((id) => {
+    const next = GRAPH.edges[id];
+    const dir = startDirection(next);
+    const dot = heading[0] * dir[0] + heading[1] * dir[1];
+    return 0.1 + Math.max(0, dot) ** 2 * 3 + (next.kind === 'primary' ? 1.5 : 0);
+  });
+  let pick = random() * weights.reduce((sum, w) => sum + w, 0);
+  for (let i = 0; i < pool.length; i++) {
+    pick -= weights[i];
+    if (pick <= 0) return GRAPH.edges[pool[i]];
+  }
+  return GRAPH.edges[pool[pool.length - 1]];
+}
+
+function createVehicles(spawn: (blocked: ReadonlySet<number>) => Edge, random: () => number): Vehicle[] {
+  const vehicles: Vehicle[] = [];
+
+  for (let i = 0; i < VEHICLE_COUNT; i++) {
+    const isBus = random() < 0.12;
+    const baseSpeed = isBus ? 2.2 + random() * 0.6 : 3 + random() * 1.4;
+    const edge = spawn(NO_EDGES);
+    vehicles.push({
+      kind: isBus ? 'bus' : 'car',
+      color: isBus
+        ? BUS_COLORS[Math.floor(random() * BUS_COLORS.length)]
+        : CAR_COLORS[Math.floor(random() * CAR_COLORS.length)],
+      edge,
+      s: random() * edge.length,
+      baseSpeed,
+      speed: baseSpeed,
+      heading: Math.atan2(-edge.dir[1], edge.dir[0]),
+    });
   }
 
   return vehicles;
@@ -270,83 +178,58 @@ interface TrafficProps {
 }
 
 export function Traffic({ active, level }: TrafficProps) {
-  const vehicles = useMemo(createVehicles, []);
+  const random = useMemo(() => createRandom(99), []);
+  const spawn = useMemo(() => createSpawner(random), [random]);
+  const vehicles = useMemo(() => createVehicles(spawn, random), [spawn, random]);
   const nodes = useRef<(Group | null)[]>([]);
+  const sample = useRef<Sample>({ x: 0, z: 0, dx: 0, dz: 0 });
 
   useFrame((_, delta) => {
     const dt = Math.min(delta, 0.05);
-    const total = level === 'total';
+    const blocked = active ? blockedEdges(level) : NO_EDGES;
+    const [cx, cz] = WORK_FRAME.center;
 
     vehicles.forEach((vehicle, index) => {
       const node = nodes.current[index];
       if (!node) return;
 
-      const laneBlocked = active && (total || vehicle.side > 0);
-      const distance = Math.abs(vehicle.u);
-      const inQueue = active && distance < QUEUE_HALF_LENGTH;
-
-      let speedFactor = 1;
-      if (vehicle.onDetour) {
-        speedFactor = 0.62;
-      } else if (active) {
-        speedFactor = laneBlocked ? (inQueue ? 0.68 : 1) : distance < 9.5 ? 0.72 : 1;
+      // O trecho onde o carro está foi fechado pela obra: ele reaparece em outra via
+      if (blocked.has(vehicle.edge.id)) {
+        vehicle.edge = spawn(blocked);
+        vehicle.s = random() * vehicle.edge.length;
       }
 
+      const [mx, mz] = vehicle.edge.mid;
+      const nearWork = active && Math.hypot(mx - cx, mz - cz) < QUEUE_RADIUS;
+      const speedFactor = nearWork ? 0.7 : 1;
       vehicle.speed += (vehicle.baseSpeed * speedFactor - vehicle.speed) * Math.min(1, dt * 2.5);
 
-      let du = 1;
-      let dw = 0;
-
-      if (!vehicle.onDetour) {
-        const prevU = vehicle.u;
-        vehicle.u += vehicle.speed * dt;
-        vehicle.w += (LANE_OFFSET - vehicle.w) * Math.min(1, dt * 4);
-
-        // Inicia o desvio suavemente ao chegar no cruzamento anterior (-9)
-        const reachedTurnPoint =
-          laneBlocked &&
-          ((prevU <= TURN_ENTRY_U && vehicle.u >= TURN_ENTRY_U) ||
-            (vehicle.u >= TURN_ENTRY_U && vehicle.u <= -CROSS_STREET_POS + 0.4));
-
-        if (reachedTurnPoint) {
-          vehicle.onDetour = true;
-          vehicle.detourEntryU = Math.min(-CROSS_STREET_POS + 0.2, Math.max(TURN_ENTRY_U, vehicle.u));
-          vehicle.detourDist = Math.max(0, vehicle.u - vehicle.detourEntryU);
-        }
-
-        if (vehicle.u > LOOP_HALF_LENGTH) {
-          vehicle.u -= LOOP_HALF_LENGTH * 2;
-        }
-      }
-
-      if (vehicle.onDetour) {
-        vehicle.detourDist += vehicle.speed * dt;
-        if (vehicle.detourDist >= TOTAL_DETOUR_LEN) {
-          vehicle.onDetour = false;
-          vehicle.u = TURN_EXIT_U + (vehicle.detourDist - TOTAL_DETOUR_LEN);
-          vehicle.w = LANE_OFFSET;
-          du = 1;
-          dw = 0;
+      vehicle.s += vehicle.speed * dt;
+      while (vehicle.s >= vehicle.edge.length) {
+        const next = chooseNext(vehicle.edge, blocked, random);
+        vehicle.s -= vehicle.edge.length;
+        if (next) {
+          vehicle.edge = next;
         } else {
-          const sample = sampleDetourPath(vehicle.detourDist, vehicle.detourEntryU);
-          vehicle.u = sample.u;
-          vehicle.w = sample.w;
-          du = sample.du;
-          dw = sample.dw;
+          vehicle.edge = spawn(blocked);
+          vehicle.s = 0;
         }
       }
 
-      const worldX = vehicle.axis === 'x' ? vehicle.side * vehicle.u : vehicle.side * vehicle.w;
-      const worldZ = vehicle.axis === 'x' ? vehicle.side * vehicle.w : vehicle.side * vehicle.u;
-      const dx = vehicle.axis === 'x' ? vehicle.side * du : vehicle.side * dw;
-      const dz = vehicle.axis === 'x' ? vehicle.side * dw : vehicle.side * du;
+      const { edge } = vehicle;
+      sampleAt(edge.pts, edge.cum, vehicle.s, sample.current);
+      const { dx, dz } = sample.current;
+      const shift = edge.twoWay ? LANE_SHIFT : 0;
+      const worldX = sample.current.x - dz * shift;
+      const worldZ = sample.current.z + dx * shift;
+      sample.current.x = worldX;
+      sample.current.z = worldZ;
 
       const targetHeading = Math.atan2(-dz, dx);
       vehicle.heading = lerpAngle(vehicle.heading, targetHeading, Math.min(1, dt * 12));
 
       const height = SIZES[vehicle.kind].height;
-      const y = ROAD_TOP + height / 2;
-      node.position.set(worldX, y, worldZ);
+      node.position.set(worldX, ROAD_TOP + height / 2, worldZ);
       node.rotation.set(0, vehicle.heading, 0);
     });
   });

@@ -5,6 +5,7 @@ import { CityBlocks } from './CityBlocks';
 import { Pedestrians } from './Pedestrians';
 import { Ground, Roads } from './Roads';
 import { Traffic } from './Traffic';
+import { WORK_FRAME } from './mapData';
 import { WorkSite } from './WorkSite';
 
 interface CitySceneProps {
@@ -16,20 +17,20 @@ export function CityScene({ activeWork, level }: CitySceneProps) {
   return (
     <Canvas shadows dpr={[1, 2]} gl={{ antialias: true }}>
       <color attach="background" args={['#050914']} />
-      <OrthographicCamera makeDefault position={[38, 38, 38]} zoom={24} near={0.1} far={1000} />
+      <OrthographicCamera makeDefault position={[WORK_FRAME.center[0] + 60, 60, WORK_FRAME.center[1] + 60]} zoom={9} near={0.1} far={1000} />
       <ambientLight intensity={0.55} />
       <hemisphereLight args={['#dbeafe', '#0f172a', 0.5]} />
       <directionalLight
-        position={[30, 50, 20]}
+        position={[80, 140, 60]}
         intensity={1.1}
         castShadow
-        shadow-mapSize={[2048, 2048]}
-        shadow-camera-left={-45}
-        shadow-camera-right={45}
-        shadow-camera-top={45}
-        shadow-camera-bottom={-45}
+        shadow-mapSize={[4096, 4096]}
+        shadow-camera-left={-150}
+        shadow-camera-right={150}
+        shadow-camera-top={150}
+        shadow-camera-bottom={-150}
         shadow-camera-near={1}
-        shadow-camera-far={150}
+        shadow-camera-far={400}
       />
       <Ground />
       <Roads />
@@ -39,14 +40,15 @@ export function CityScene({ activeWork, level }: CitySceneProps) {
       {activeWork && <WorkSite key={activeWork} workId={activeWork} level={level} />}
       <OrbitControls
         makeDefault
-        target={[0, 0, 0]}
+        target={[WORK_FRAME.center[0], 0, WORK_FRAME.center[1]]}
         enableDamping
         dampingFactor={0.08}
-        minZoom={14}
+        minZoom={3}
         maxZoom={60}
         minPolarAngle={Math.PI / 6}
         maxPolarAngle={Math.PI / 2.1}
-        enablePan={false}
+        enablePan
+        screenSpacePanning={false}
       />
     </Canvas>
   );

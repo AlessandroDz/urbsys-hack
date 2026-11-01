@@ -2,14 +2,17 @@ import { useFrame } from '@react-three/fiber';
 import { useRef } from 'react';
 import type { Group, MeshBasicMaterial, MeshStandardMaterial } from 'three';
 import type { BlockLevel, WorkId } from '@/lib/interventions';
-import { AVENUE_HALF_WIDTH, ROAD_TOP } from './cityLayout';
+import { ROAD_TOP } from './cityLayout';
+import { CLOSURE_RADIUS, WORK_FRAME } from './mapData';
 
 const CLOSURE_COLOR = '#ef4444';
 const BARRIER_COLOR = '#f59e0b';
-const CLOSURE_LENGTH = 14;
-const BARRIER_OFFSET = 6.5;
-const LANE_Z = 1.1;
-const AVENUE_WIDTH = AVENUE_HALF_WIDTH * 2;
+const CLOSURE_LENGTH = CLOSURE_RADIUS * 2;
+const BARRIER_OFFSET = CLOSURE_RADIUS;
+const LANE_Z = WORK_FRAME.laneHalf;
+const AVENUE_WIDTH = WORK_FRAME.width;
+const CARRIAGE_WIDTH = WORK_FRAME.carriage;
+const HALF_WIDTH = AVENUE_WIDTH / 2;
 
 type Vec3 = [number, number, number];
 
@@ -34,9 +37,10 @@ function ClosureOverlay({ level }: { level: BlockLevel }) {
   const y = ROAD_TOP + 0.02;
   return (
     <group>
-      <PulsingPlane args={[CLOSURE_LENGTH, AVENUE_WIDTH]} position={[0, y, 0]} rotation={flat} />
-      {level === 'total' && (
-        <PulsingPlane args={[AVENUE_WIDTH, CLOSURE_LENGTH]} position={[0, y, 0]} rotation={flat} />
+      {level === 'total' ? (
+        <PulsingPlane args={[CLOSURE_LENGTH, AVENUE_WIDTH]} position={[0, y, 0]} rotation={flat} />
+      ) : (
+        <PulsingPlane args={[CLOSURE_LENGTH, CARRIAGE_WIDTH]} position={[0, y, LANE_Z]} rotation={flat} />
       )}
     </group>
   );
@@ -44,16 +48,13 @@ function ClosureOverlay({ level }: { level: BlockLevel }) {
 
 function Barriers({ level }: { level: BlockLevel }) {
   const y = ROAD_TOP + 0.35;
+  const total = level === 'total';
+  const z = total ? 0 : LANE_Z;
+  const width = total ? AVENUE_WIDTH : CARRIAGE_WIDTH;
   const barriers: Array<{ position: Vec3; size: Vec3 }> = [
-    { position: [-BARRIER_OFFSET, y, 0], size: [0.4, 0.7, AVENUE_WIDTH] },
-    { position: [BARRIER_OFFSET, y, 0], size: [0.4, 0.7, AVENUE_WIDTH] },
+    { position: [-BARRIER_OFFSET, y, z], size: [0.4, 0.7, width] },
+    { position: [BARRIER_OFFSET, y, z], size: [0.4, 0.7, width] },
   ];
-  if (level === 'total') {
-    barriers.push(
-      { position: [0, y, -BARRIER_OFFSET], size: [AVENUE_WIDTH, 0.7, 0.4] },
-      { position: [0, y, BARRIER_OFFSET], size: [AVENUE_WIDTH, 0.7, 0.4] },
-    );
-  }
 
   return (
     <group>
@@ -146,7 +147,7 @@ function UnderpassSite() {
         <planeGeometry args={[12, AVENUE_WIDTH - 0.4]} />
         <meshBasicMaterial color="#020617" />
       </mesh>
-      <group ref={crane} position={[-5.5, ROAD_TOP, 2.6]}>
+      <group ref={crane} position={[-5.5, ROAD_TOP, HALF_WIDTH + 0.5]}>
         <mesh position={[0, 3, 0]} castShadow>
           <boxGeometry args={[0.4, 6, 0.4]} />
           <meshStandardMaterial color="#facc15" roughness={0.5} />
@@ -173,10 +174,10 @@ function UnderpassSite() {
 
 function ViaductSite() {
   const pillarPositions: Vec3[] = [
-    [-6, 1.7, -2.6],
-    [-6, 1.7, 2.6],
-    [6, 1.7, -2.6],
-    [6, 1.7, 2.6],
+    [-6, 1.7, -HALF_WIDTH],
+    [-6, 1.7, HALF_WIDTH],
+    [6, 1.7, -HALF_WIDTH],
+    [6, 1.7, HALF_WIDTH],
   ];
 
   return (
@@ -188,11 +189,11 @@ function ViaductSite() {
         </mesh>
       ))}
       <mesh position={[0, 3.5, 0]} castShadow receiveShadow>
-        <boxGeometry args={[14, 0.5, 5.4]} />
+        <boxGeometry args={[14, 0.5, AVENUE_WIDTH + 0.4]} />
         <meshStandardMaterial color="#e2e8f0" roughness={0.85} />
       </mesh>
-      <Beacon position={[6, 3.9, 2.6]} />
-      <Beacon position={[-6, 3.9, -2.6]} />
+      <Beacon position={[6, 3.9, HALF_WIDTH]} />
+      <Beacon position={[-6, 3.9, -HALF_WIDTH]} />
       <Machine kind="tractor" z={-LANE_Z} phase={0} range={3} />
     </group>
   );
@@ -217,19 +218,19 @@ function BikeLaneSite() {
     <group>
       {lanes.map((side) => (
         <group key={side}>
-          <mesh position={[0, ROAD_TOP + 0.012, side * 2.6]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+          <mesh position={[0, ROAD_TOP + 0.012, side * (HALF_WIDTH + 0.35)]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
             <planeGeometry args={[24, 0.6]} />
             <meshStandardMaterial color="#059669" roughness={0.8} />
           </mesh>
           {[-10, -5, 0, 5, 10].map((x) => (
-            <mesh key={x} position={[x, ROAD_TOP + 0.25, side * 2.9]} castShadow>
+            <mesh key={x} position={[x, ROAD_TOP + 0.25, side * (HALF_WIDTH + 0.65)]} castShadow>
               <cylinderGeometry args={[0.08, 0.08, 0.5, 8]} />
               <meshStandardMaterial color="#f8fafc" />
             </mesh>
           ))}
         </group>
       ))}
-      <Machine kind="tractor" z={2.6} phase={Math.PI / 2} range={8} />
+      <Machine kind="tractor" z={HALF_WIDTH + 0.35} phase={Math.PI / 2} range={8} />
     </group>
   );
 }
@@ -249,7 +250,7 @@ interface WorkSiteProps {
 export function WorkSite({ workId, level }: WorkSiteProps) {
   const Site = SITE_BY_WORK[workId];
   return (
-    <group>
+    <group position={[WORK_FRAME.center[0], 0, WORK_FRAME.center[1]]} rotation={[0, WORK_FRAME.angle, 0]}>
       <ClosureOverlay level={level} />
       <Barriers level={level} />
       <Site />
