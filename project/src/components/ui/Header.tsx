@@ -19,8 +19,8 @@ export function Header({ isCritical }: HeaderProps) {
           <Building2 size={18} strokeWidth={2.25} />
         </span>
         <div className="leading-tight">
-          <p className="text-sm font-semibold tracking-tight text-slate-100">UrbisAI</p>
-          <p className="text-xs text-slate-400">Simulador de Impacto Urbano</p>
+          <p className="text-sm font-semibold tracking-tight text-slate-100">UrbisAI · Região FAESA</p>
+          <p className="text-xs text-slate-400">Eixo Av. Vitória × Av. Mal. Campos</p>
         </div>
       </div>
 
@@ -30,7 +30,7 @@ export function Header({ isCritical }: HeaderProps) {
           <span className={`relative inline-flex size-2.5 rounded-full ${dotClass}`} />
         </span>
         <div className="leading-tight">
-          <p className="text-[11px] uppercase tracking-wider text-slate-400">Trânsito em tempo real</p>
+          <p className="text-[11px] uppercase tracking-wider text-slate-400">Fluxo na Av. Vitória (FAESA)</p>
           <p className="text-sm font-semibold">
             <span className={textClass}>{statusLabel}</span>
             <span className="ml-2 font-normal text-slate-400">{averageSpeed} km/h médios</span>

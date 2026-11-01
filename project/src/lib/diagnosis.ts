@@ -47,29 +47,32 @@ export function computeDiagnosis(work: WorkDefinition, params: WorkParams): Diag
   const busLines = Math.round(impact.busLines * multiplier);
   const extraMinutes = busLines === 0 ? 0 : Math.round((2 + busLines * 0.8) * multiplier);
 
-  const traffic = ['Sincronizar onda verde na via paralela das 17h às 19h'];
+  const traffic = [
+    'Sincronizar onda verde na R. Aluysio Simões e R. Camilo Gianordoli nos horários de pico da FAESA (7h–8h30 e 18h–19h30)',
+    'Garantir acesso sinalizado ao estacionamento da FAESA pela R. Anselmo Serrate e R. João Vieira',
+  ];
   if (busLines > 0) {
-    traffic.push('Criar corredor exclusivo provisório para ônibus na via paralela');
+    traffic.push('Operar faixa prioritária provisória para linhas do Transcol/Municipal no eixo Av. Vitória ↔ Av. Mal. Campos');
   }
   if (isTotal) {
-    traffic.push('Instalar painéis de mensagem variável 2 km antes do bloqueio com rotas alternativas');
+    traffic.push('Instalar painéis de mensagem variável (PMV) na altura do IFES e da Av. Cezar Hilal indicando desvios');
   }
   if (duration >= 6) {
-    traffic.push('Concentrar atividades ruidosas em janelas noturnas para liberar a via no horário de pico');
+    traffic.push('Concentrar etapas críticas e ruidosas em janela noturna (22h30 às 5h) após o encerramento do turno noturno da FAESA');
   }
   if (work.id === 'bikeLane') {
-    traffic.push('Manter ciclofaixa provisória protegida por balizadores durante a obra');
+    traffic.push('Manter travessia de pedestres e ciclistas protegida junto à Passarela FAESA durante toda a obra');
   }
 
   const iptuPct = isTotal ? 50 : 30;
   const monthsLabel = duration === 1 ? 'mês' : 'meses';
   const economic = [
-    `Isenção temporária de ${iptuPct}% do IPTU para CNPJs do polígono afetado durante os ${duration} ${monthsLabel} de obra`,
-    'Linha de crédito com juros subsidiados para capital de giro do comércio local',
-    'Vale-consumo para moradores do entorno em estabelecimentos do polígono afetado',
+    `Isenção temporária de ${iptuPct}% do IPTU para comércios da Av. Vitória e entorno da FAESA durante os ${duration} ${monthsLabel} de obra`,
+    'Linha de microcrédito com juros subsidiados para restaurantes, padarias e serviços automotivos do polígono afetado',
+    'Campanha de incentivo ao consumo universitário nos estabelecimentos parceiros de Monte Belo e Ilha de Santa Maria',
   ];
   if (revenueDropPct >= 20) {
-    economic.push('Programa de compensação para lojas com queda de faturamento acima de 20%');
+    economic.push('Programa de compensação emergencial para comércios locais com queda de faturamento superior a 20%');
   }
 
   return {
@@ -90,9 +93,9 @@ export function computeDiagnosis(work: WorkDefinition, params: WorkParams): Diag
       realEstateGainPct: impact.realEstateGainPct,
       co2TonsYear: impact.co2TonsYear,
       highlights: [
-        `Redução de ${impact.travelGainPct}% no tempo de travessia do cruzamento`,
-        `Valorização imobiliária estimada em ${impact.realEstateGainPct}% para o comércio local`,
-        `Redução de ${impact.co2TonsYear} toneladas de CO2 por ano na região`,
+        `Redução de ${impact.travelGainPct}% no tempo de travessia da Av. Vitória em frente à FAESA`,
+        `Valorização imobiliária estimada em ${impact.realEstateGainPct}% para o comércio de Monte Belo e Ilha de Santa Maria`,
+        `Redução de ${impact.co2TonsYear} toneladas de CO2 por ano no corredor da Av. Vitória`,
         impact.legacyHighlight,
       ],
     },

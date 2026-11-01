@@ -16,8 +16,8 @@ export function InterventionsPanel({ activeWork, hidden, onSelect }: Interventio
       }`}
     >
       <div className="mb-4">
-        <h2 className="text-lg font-semibold text-slate-100">Intervenções Urbanas</h2>
-        <p className="mt-1 text-xs text-slate-400">Clique ou arraste uma obra até o cruzamento central</p>
+        <h2 className="text-lg font-semibold text-slate-100">Intervenções · Av. Vitória</h2>
+        <p className="mt-1 text-xs text-slate-400">Clique ou arraste uma obra até o cruzamento em frente à FAESA</p>
       </div>
 
       <ul className="space-y-2.5">

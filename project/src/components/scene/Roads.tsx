@@ -1,3 +1,4 @@
+import { Html } from '@react-three/drei';
 import { useMemo } from 'react';
 import {
   BANDS,
@@ -18,12 +19,56 @@ const SIDEWALK_COLOR = '#334155';
 const CROSSWALK_BANDS = [-18, -9, 0, 9, 18];
 const STRIPE_OFFSETS = [-1.5, -0.9, -0.3, 0.3, 0.9, 1.5];
 
+interface StreetLabelSpec {
+  name: string;
+  position: [number, number, number];
+  primary?: boolean;
+}
+
+const STREET_LABELS: StreetLabelSpec[] = [
+  { name: 'Av. Vitória', position: [-14, ROAD_TOP + 0.15, 0], primary: true },
+  { name: 'Av. Vitória', position: [14, ROAD_TOP + 0.15, 0], primary: true },
+  { name: 'Av. Mal. Campos', position: [0, ROAD_TOP + 0.15, -14], primary: true },
+  { name: 'R. Anselmo Serrate', position: [0, ROAD_TOP + 0.15, 13.5] },
+  { name: 'R. Camilo Gianordoli', position: [13.5, ROAD_TOP + 0.15, -9] },
+  { name: 'R. Aluysio Simões', position: [13.5, ROAD_TOP + 0.15, 9] },
+  { name: 'R. Gilberto Paixão', position: [-9, ROAD_TOP + 0.15, -13.5] },
+  { name: 'R. João Vieira', position: [9, ROAD_TOP + 0.15, 13.5] },
+];
+
 export function Ground() {
   return (
     <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -0.01, 0]} receiveShadow>
       <planeGeometry args={[240, 240]} />
       <meshStandardMaterial color={GROUND_COLOR} roughness={1} />
     </mesh>
+  );
+}
+
+function StreetLabels() {
+  return (
+    <group>
+      {STREET_LABELS.map((street, index) => (
+        <Html
+          key={index}
+          position={street.position}
+          center
+          zIndexRange={[3, 0]}
+          wrapperClass="pointer-events-none select-none"
+          style={{ pointerEvents: 'none' }}
+        >
+          <span
+            className={`whitespace-nowrap rounded-md border px-2 py-0.5 text-[10px] font-semibold tracking-wide backdrop-blur-sm ${
+              street.primary
+                ? 'border-sky-400/40 bg-slate-900/85 text-sky-200 shadow-sm'
+                : 'border-white/10 bg-slate-900/70 text-slate-300'
+            }`}
+          >
+            {street.name}
+          </span>
+        </Html>
+      ))}
+    </group>
   );
 }
 
@@ -180,6 +225,7 @@ export function Roads() {
       <Sidewalks />
       <RoadDashes />
       <Crosswalks />
+      <StreetLabels />
     </group>
   );
 }
