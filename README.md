@@ -120,7 +120,7 @@ Dentro da pasta `project/`, você pode executar:
 | `npm run typecheck` | Executa a verificação de tipos do TypeScript sem emitir arquivos. |
 | `npm run lint` | Analisa o código com ESLint em busca de problemas de padronização. |
 
-#Pitch de Apresentação
+# Pitch de Apresentação
 
 Você já ficou preso no trânsito por causa de uma obra mal planejada? Ou pior, já viu o comércio do seu bairro falir porque a rua ficou interditada por meses? 🚧📉
 Neste fim de semana, minha equipe e eu encaramos o desafio do HackFAESA para resolver a cegueira do planejamento urbano. Foi assim que desenvolvemos e 
