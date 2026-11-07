@@ -120,3 +120,22 @@ Dentro da pasta `project/`, você pode executar:
 | `npm run typecheck` | Executa a verificação de tipos do TypeScript sem emitir arquivos. |
 | `npm run lint` | Analisa o código com ESLint em busca de problemas de padronização. |
 
+#Pitch de Apresentação
+
+Você já ficou preso no trânsito por causa de uma obra mal planejada? Ou pior, já viu o comércio do seu bairro falir porque a rua ficou interditada por meses? 🚧📉
+Neste fim de semana, minha equipe e eu encaramos o desafio do HackFAESA para resolver a cegueira do planejamento urbano. Foi assim que desenvolvemos e 
+apresentamos o UrbisAI. 🚀
+
+Hoje, prefeituras dependem de Estudos de Impacto de Vizinhança que custam fortunas e demoram até 2 anos para ficarem prontos. O problema? Esses documentos de 500 páginas contam os carros no semáforo, algo que pode passar despercebido ao gestor é quais CNPJs vão quebrar durante o processo.
+
+Com o UrbisAI, nós transformamos esse cenário. Criamos o protótipo de uma plataforma GovTech de inteligência preditiva. Através de uma interface 3D interativa — no melhor estilo SimCity —, o gestor arrasta a intervenção (como um viaduto ou recapeamento) diretamente para o mapa da cidade.
+
+Em minutos, nossa IA cruza dados georreferenciados e socioeconomicos e gera um relatório executivo mostrando: 🏢 O risco financeiro e os comércios isolados na zona da obra. 🚌 O impacto nas linhas de ônibus e na mobilidade ativa. ✅ Um Plano de Mitigação automático (ex: criar faixa exclusiva provisória e sugerir isenção temporária de IPTU para os lojistas afetados).
+
+Entregamos a comparação das partes: saímos de um PDF estático de milhares de reais para previsibilidade socioeconômica instantânea para cidades como a nossa Grande Vitória.
+
+Importante lembrar que essa solução não substitui o relatório detalhado que já é feito, mas traz para o secretário de mobilidade urbana ou o prefeito, em uma única assinatura, de forma simples, direta e em poucos minutos, qual o impacto que uma paralização traria para as pessoas e comerciantes de certo lugar. Sem precisar da burocracia de uma licitação ou gastar rios de dinheiro público para fazer um estudo e descobrir que não é viável naquele momento ou financeiramente 
+
+Construir essa arquitetura e validar esse modelo de negócios B2G em um fim de semana foi intenso, mas provou que o futuro das smart cities não é apenas instalar sensores em semáforos. É ter empatia com quem vive e empreende no local.
+Um agradecimento gigante ao time que virou a noite fazendo isso acontecer:
+
